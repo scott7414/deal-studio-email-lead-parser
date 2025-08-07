@@ -1,4 +1,3 @@
-from flask import Request, jsonify
 from bs4 import BeautifulSoup
 import re
 
@@ -38,17 +37,15 @@ def extract_bizbuysell(html):
         "source": source
     }
 
-def handler(request: Request):
-    html = request.data.decode('utf-8')
-    source = "unknown"
+# This is the expected Vercel handler format
+def handler(request):
+    try:
+        body = request.get("body", "")
+        html = body.encode('utf-8').decode('utf-8')
 
-    if 'bizbuysell' in html:
-        parsed = extract_bizbuysell(html)
-        source = "bizbuysell"
-    else:
-        parsed = {}
-
-    return jsonify({
-        "source": source,
-        "parsed_data": parsed
-    })
+        if 'bizbuysell' in html:
+            parsed = extract_bizbuysell(html)
+            source = "bizbuysell"
+        else:
+            parsed = {}
+            source
