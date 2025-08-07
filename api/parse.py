@@ -67,37 +67,57 @@ def extract_bizbuysell_html(html_body):
 # -----------------------------
 # BizBuySell Text Parser
 # -----------------------------
-import re
-
 def extract_bizbuysell_text_version(text):
-    def get_value(label):
-        match = re.search(rf"{label}:\s*(.*)", text)
-        return match.group(1).strip() if match else ''
-
-    name = get_value("Contact Name")
-    first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
-
-    # Special handling for 'Purchase Within' to stop before 'Comments'
-    purchase_within_match = re.search(r"Purchase Within:\s*(.*?)\s*Comments:", text, re.DOTALL)
-    purchase_timeline = purchase_within_match.group(1).strip() if purchase_within_match else ''
-
-    # Comments line should only start after 'Comments:'
-    comments_match = re.search(r"Comments:\s*(.*)", text, re.DOTALL)
-    comments = comments_match.group(1).strip() if comments_match else ''
-
-    return {
-        "first_name": first_name,
-        "last_name": last_name,
-        "email": get_value("Contact Email"),
-        "phone": get_value("Contact Phone"),
-        "ref_id": get_value("Ref ID"),
-        "listing_id": get_value("Listing ID"),
-        "headline": extract_headline_from_text(text),  # Assuming function exists
-        "contact_zip": get_value("Contact Zip"),
-        "investment_amount": get_value("Able to Invest"),
-        "purchase_timeline": purchase_timeline,
-        "comments": comments
+    lines = text.splitlines()
+    data = {
+        "first_name": "",
+        "last_name": "",
+        "email": None,
+        "phone": None,
+        "ref_id": "",
+        "listing_id": "",
+        "headline": "",
+        "contact_zip": "",
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": ""
     }
+
+    for i, line in enumerate(lines):
+        line = line.strip()
+
+        if line.startswith("Contact Name:"):
+            name = line.split("Contact Name:", 1)[-1].strip()
+            if " " in name:
+                data["first_name"], data["last_name"] = name.split(" ", 1)
+            else:
+                data["first_name"] = name
+        elif line.startswith("Contact Email:"):
+            data["email"] = line.split("Contact Email:", 1)[-1].strip()
+        elif line.startswith("Contact Phone:"):
+            data["phone"] = line.split("Contact Phone:", 1)[-1].strip()
+        elif line.startswith("Contact Zip:"):
+            data["contact_zip"] = line.split("Contact Zip:", 1)[-1].strip()
+        elif line.startswith("Able to Invest:"):
+            data["investment_amount"] = line.split("Able to Invest:", 1)[-1].strip()
+        elif line.startswith("Purchase Within:"):
+            # Check if next line is a normal value or actually starts with "Comments"
+            if i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                if not next_line.startswith("Comments:"):
+                    data["purchase_timeline"] = next_line
+        elif line.startswith("Comments:"):
+            data["comments"] = line.split("Comments:", 1)[-1].strip()
+        elif line.startswith("Listing ID:"):
+            data["listing_id"] = line.split("Listing ID:", 1)[-1].strip()
+        elif line.startswith("Ref ID:"):
+            data["ref_id"] = line.split("Ref ID:", 1)[-1].strip()
+        elif "You’ve received a new lead regarding your listing:" in line:
+            # Headline typically follows this line
+            if i + 1 < len(lines):
+                data["headline"] = lines[i + 1].strip()
+
+    return data
 
 
 # -----------------------------
