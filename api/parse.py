@@ -1,8 +1,12 @@
+from flask import Flask, request, jsonify
 from bs4 import BeautifulSoup
+import html
 import re
 
-def extract_bizbuysell(html):
-    soup = BeautifulSoup(html, 'html.parser')
+app = Flask(__name__)
+
+def extract_bizbuysell(html_body):
+    soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
     def extract_text(label):
         tag = soup.find('b', string=re.compile(label))
@@ -37,33 +41,21 @@ def extract_bizbuysell(html):
         "source": source
     }
 
-def handler(request):
+@app.route('/api/parse', methods=['POST'])
+def parse_html():
     try:
-        html = request.get("body", "")
-        if not html:
-            return {
-                "statusCode": 400,
-                "body": "Missing HTML body"
-            }
+        html_body = request.get_data(as_text=True)
+        if not html_body:
+            return jsonify({"error": "No HTML content provided."}), 400
 
-        if 'bizbuysell' in html:
-            parsed = extract_bizbuysell(html)
-            source = "bizbuysell"
-        else:
-            parsed = {}
-            source = "unknown"
+        if "bizbuysell" in html_body:
+            parsed_data = extract_bizbuysell(html_body)
+            return jsonify({"source": "bizbuysell", "parsed_data": parsed_data})
 
-        return {
-            "statusCode": 200,
-            "headers": { "Content-Type": "application/json" },
-            "body": {
-                "source": source,
-                "parsed_data": parsed
-            }
-        }
+        return jsonify({"source": "unknown", "parsed_data": {}})
 
     except Exception as e:
-        return {
-            "statusCode": 500,
-            "body": f"Internal Server Error: {str(e)}"
-        }
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+if __name__ == "__main__":
+    app.run()
