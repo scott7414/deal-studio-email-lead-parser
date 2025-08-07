@@ -8,7 +8,6 @@ app = Flask(__name__)
 def extract_bizbuysell(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
-    # Extract actual source email from the "From:" row
     source = None
     source_block = soup.find(string=re.compile("From:"))
     if source_block:
@@ -19,7 +18,6 @@ def extract_bizbuysell(html_body):
         if match:
             source = match.group(0)
 
-    # Headline
     headline = None
     for b in soup.find_all('b'):
         text = b.get_text(strip=True)
@@ -27,24 +25,19 @@ def extract_bizbuysell(html_body):
             headline = text
             break
 
-    # Contact name
     name_tag = soup.find('b', string=re.compile('Contact Name'))
     name = name_tag.find_next('span').get_text(strip=True) if name_tag else ''
     first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
-    # Email
     email_tag = soup.find('b', string=re.compile('Contact Email'))
     email = email_tag.find_next('span').get_text(strip=True) if email_tag else None
 
-    # Phone
     phone_tag = soup.find('b', string=re.compile('Contact Phone'))
     phone = phone_tag.find_next('span').get_text(strip=True) if phone_tag else None
 
-    # Ref ID
     ref_id_match = soup.find(text=re.compile('Ref ID'))
     ref_id = ref_id_match.find_next(text=True).strip() if ref_id_match else None
 
-    # Listing ID
     listing_id = None
     span_tags = soup.find_all('span')
     for span in span_tags:
@@ -54,7 +47,6 @@ def extract_bizbuysell(html_body):
                 listing_id = a.get_text(strip=True)
                 break
 
-    # Optional fields: robust extraction
     def extract_optional(label):
         try:
             tag = soup.find('b', string=re.compile(label))
@@ -85,16 +77,71 @@ def extract_bizbuysell(html_body):
         "comments": comments
     }
 
+def extract_businessesforsale(text_body):
+    lines = text_body.replace('\r', '').split('\n')
+    lines = [line.strip() for line in lines if line.strip()]
+    full_text = "\n".join(lines)
+
+    name = email = phone = ref_id = headline = listing_url = comments = ''
+
+    name_match = re.search(r'Name:\s*(.+)', full_text)
+    if name_match:
+        name = name_match.group(1).strip()
+    first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
+
+    email_match = re.search(r'Email:\s*([\w\.-]+@[\w\.-]+)', full_text)
+    if email_match:
+        email = email_match.group(1).strip()
+
+    phone_match = re.search(r'Tel:\s*([+()0-9\s-]+)', full_text)
+    if phone_match:
+        phone = phone_match.group(1).strip()
+
+    ref_match = re.search(r'listing ref:(\d+)', full_text, re.IGNORECASE)
+    if ref_match:
+        ref_id = ref_match.group(1).strip()
+
+    headline_match = re.search(r'listing ref:\d+\s*(.+)', full_text, re.IGNORECASE)
+    if headline_match:
+        headline = headline_match.group(1).strip()
+
+    url_match = re.search(r'(https?://[^\s]+)', full_text)
+    if url_match:
+        listing_url = url_match.group(1).strip()
+
+    try:
+        msg_index = lines.index("has received the following message:")
+        comments = lines[msg_index + 1]
+    except:
+        pass
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": ref_id,
+        "headline": headline,
+        "listing_url": listing_url,
+        "comments": comments
+    }
+
 @app.route('/api/parse', methods=['POST'])
 def parse_html():
     try:
-        html_body = request.get_data(as_text=True)
-        if not html_body:
-            return jsonify({"error": "No HTML content provided."}), 400
+        body = request.get_data(as_text=True)
+        if not body:
+            return jsonify({"error": "No content provided."}), 400
 
-        if "bizbuysell" in html_body.lower():
-            parsed_data = extract_bizbuysell(html_body)
+        lowered = body.lower()
+
+        if "bizbuysell" in lowered:
+            parsed_data = extract_bizbuysell(body)
             return jsonify({"source": "bizbuysell", "parsed_data": parsed_data})
+
+        elif "businessesforsale.com" in lowered:
+            parsed_data = extract_businessesforsale(body)
+            return jsonify({"source": "businessesforsale", "parsed_data": parsed_data})
 
         return jsonify({"source": "unknown", "parsed_data": {}})
 
