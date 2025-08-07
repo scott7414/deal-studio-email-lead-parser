@@ -68,55 +68,72 @@ def extract_bizbuysell_html(html_body):
 # BizBuySell Text Parser
 # -----------------------------
 def extract_bizbuysell_text_version(text):
-    lines = text.splitlines()
-    data = {
-        "first_name": "",
-        "last_name": "",
-        "email": None,
-        "phone": None,
-        "ref_id": "",
-        "listing_id": "",
-        "headline": "",
-        "contact_zip": "",
-        "investment_amount": "",
-        "purchase_timeline": "",
-        "comments": ""
-    }
+    try:
+        lines = text.splitlines()
+        data = {
+            "first_name": "",
+            "last_name": "",
+            "email": "",
+            "phone": "",
+            "ref_id": "",
+            "listing_id": "",
+            "headline": "",
+            "contact_zip": "",
+            "investment_amount": "",
+            "purchase_timeline": "",
+            "comments": ""
+        }
 
-    for i, line in enumerate(lines):
-        line = line.strip()
+        for i, line in enumerate(lines):
+            line = line.strip()
 
-        if line.startswith("Contact Name:"):
-            name = line.split("Contact Name:", 1)[-1].strip()
-            if name:
-                if " " in name:
-                    data["first_name"], data["last_name"] = name.split(" ", 1)
-                else:
-                    data["first_name"] = name
-        elif line.startswith("Contact Email:"):
-            data["email"] = line.split("Contact Email:", 1)[-1].strip()
-        elif line.startswith("Contact Phone:"):
-            data["phone"] = line.split("Contact Phone:", 1)[-1].strip()
-        elif line.startswith("Contact Zip:"):
-            data["contact_zip"] = line.split("Contact Zip:", 1)[-1].strip()
-        elif line.startswith("Able to Invest:"):
-            data["investment_amount"] = line.split("Able to Invest:", 1)[-1].strip()
-        elif line.startswith("Purchase Within:"):
-            if i + 1 < len(lines):
-                next_line = lines[i + 1].strip()
+            if line.startswith("Contact Name:"):
+                name = line.split("Contact Name:", 1)[-1].strip()
+                if name:
+                    name_parts = name.split(" ", 1)
+                    data["first_name"] = name_parts[0]
+                    data["last_name"] = name_parts[1] if len(name_parts) > 1 else ""
+            elif line.startswith("Contact Email:"):
+                data["email"] = line.split("Contact Email:", 1)[-1].strip()
+            elif line.startswith("Contact Phone:"):
+                data["phone"] = line.split("Contact Phone:", 1)[-1].strip()
+            elif line.startswith("Contact Zip:"):
+                data["contact_zip"] = line.split("Contact Zip:", 1)[-1].strip()
+            elif line.startswith("Able to Invest:"):
+                data["investment_amount"] = line.split("Able to Invest:", 1)[-1].strip()
+            elif line.startswith("Purchase Within:"):
+                # Look ahead for next line, unless it's Comments
+                next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
                 if not next_line.startswith("Comments:"):
                     data["purchase_timeline"] = next_line
-        elif line.startswith("Comments:"):
-            data["comments"] = line.split("Comments:", 1)[-1].strip()
-        elif line.startswith("Listing ID:"):
-            data["listing_id"] = line.split("Listing ID:", 1)[-1].strip()
-        elif line.startswith("Ref ID:"):
-            data["ref_id"] = line.split("Ref ID:", 1)[-1].strip()
-        elif "You’ve received a new lead regarding your listing:" in line:
-            if i + 1 < len(lines):
-                data["headline"] = lines[i + 1].strip()
+            elif line.startswith("Comments:"):
+                data["comments"] = line.split("Comments:", 1)[-1].strip()
+            elif line.startswith("Listing ID:"):
+                data["listing_id"] = line.split("Listing ID:", 1)[-1].strip()
+            elif line.startswith("Ref ID:"):
+                data["ref_id"] = line.split("Ref ID:", 1)[-1].strip()
+            elif "You’ve received a new lead regarding your listing:" in line:
+                # Get the next line as the headline
+                data["headline"] = lines[i + 1].strip() if i + 1 < len(lines) else ""
 
-    return data
+        return data
+
+    except Exception as e:
+        # Always return something, even if parsing failed
+        return {
+            "first_name": "",
+            "last_name": "",
+            "email": "",
+            "phone": "",
+            "ref_id": "",
+            "listing_id": "",
+            "headline": "",
+            "contact_zip": "",
+            "investment_amount": "",
+            "purchase_timeline": "",
+            "comments": "",
+            "error": f"Parsing failed: {str(e)}"
+        }
 
 
 # -----------------------------
