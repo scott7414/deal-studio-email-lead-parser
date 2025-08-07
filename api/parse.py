@@ -5,36 +5,31 @@ import re
 
 app = Flask(__name__)
 
-# -----------------------------
-# BizBuySell HTML Parser
-# -----------------------------
+# ---------- BizBuySell HTML ----------
 def extract_bizbuysell_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
-    def extract_optional(label):
+    def safe_find_text(label):
         try:
             tag = soup.find('b', string=re.compile(label))
             if tag:
                 span = tag.find_next('span')
-                if span:
-                    return span.get_text(strip=True)
+                return span.get_text(strip=True) if span else ''
+        except:
             return ''
-        except Exception:
-            return ''
+        return ''
 
-    name_tag = soup.find('b', string=re.compile('Contact Name'))
-    name = name_tag.find_next('span').get_text(strip=True) if name_tag else ''
+    name = safe_find_text("Contact Name")
     first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
+    email = safe_find_text("Contact Email")
+    phone = safe_find_text("Contact Phone")
+    contact_zip = safe_find_text("Contact Zip")
+    investment_amount = safe_find_text("Able to Invest")
+    purchase_timeline = safe_find_text("Purchase Within")
+    comments = safe_find_text("Comments")
+    ref_id = safe_find_text("Ref ID")
 
-    email_tag = soup.find('b', string=re.compile('Contact Email'))
-    email = email_tag.find_next('span').get_text(strip=True) if email_tag else None
-
-    phone_tag = soup.find('b', string=re.compile('Contact Phone'))
-    phone = phone_tag.find_next('span').get_text(strip=True) if phone_tag else None
-
-    ref_id_match = soup.find(text=re.compile('Ref ID'))
-    ref_id = ref_id_match.find_next(text=True).strip() if ref_id_match else ''
-
+    # Listing ID
     listing_id = ''
     for span in soup.find_all('span'):
         if 'Listing ID:' in span.get_text():
@@ -43,6 +38,7 @@ def extract_bizbuysell_html(html_body):
                 listing_id = a.get_text(strip=True)
                 break
 
+    # Headline (first <b> tag not labeled "From:")
     headline = ''
     for b in soup.find_all('b'):
         text = b.get_text(strip=True)
@@ -58,42 +54,31 @@ def extract_bizbuysell_html(html_body):
         "ref_id": ref_id,
         "listing_id": listing_id,
         "headline": headline,
-        "contact_zip": extract_optional("Contact Zip"),
-        "investment_amount": extract_optional("Able to Invest"),
-        "purchase_timeline": extract_optional("Purchase Within"),
-        "comments": extract_optional("Comments")
+        "contact_zip": contact_zip,
+        "investment_amount": investment_amount,
+        "purchase_timeline": purchase_timeline,
+        "comments": comments
     }
 
-# -----------------------------
-# BizBuySell Text Parser
-# -----------------------------
-import re
-
-def extract_bizbuysell_text_version(text):
+# ---------- BizBuySell TEXT ----------
+def extract_bizbuysell_text(text):
     def get_value(label):
         match = re.search(rf"{label}:\s*(.*)", text)
         return match.group(1).strip() if match else ''
 
-    # Handle full name
     name = get_value("Contact Name")
     first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
-    # Handle headline (just before "Listing ID")
-    headline_match = re.search(r"regarding your listing:\s*(.*?)\s*Listing ID:", text, re.DOTALL)
-    headline = headline_match.group(1).strip() if headline_match else ''
-
-    # Handle Purchase Timeline (stopping at "Comments")
-    purchase_timeline = ''
+    # Handle special cases
     purchase_match = re.search(r"Purchase Within:\s*(.*?)\s*Comments:", text, re.DOTALL)
-    if purchase_match:
-        purchase_timeline = purchase_match.group(1).strip()
+    purchase_timeline = purchase_match.group(1).strip() if purchase_match else ''
 
-    # Handle Comments
-    comments = ''
     comments_match = re.search(r"Comments:\s*(.*)", text, re.DOTALL)
-    if comments_match:
-        # Stop at first newline if present (to avoid pulling rest of email)
-        comments = comments_match.group(1).strip().split('\n')[0].strip()
+    comments = comments_match.group(1).strip() if comments_match else ''
+
+    # Headline fallback from intro section
+    headline_match = re.search(r"regarding your listing:\s*(.*?)\s*Listing ID", text, re.DOTALL)
+    headline = headline_match.group(1).strip() if headline_match else ''
 
     return {
         "first_name": first_name,
@@ -109,77 +94,61 @@ def extract_bizbuysell_text_version(text):
         "comments": comments
     }
 
+# ---------- BusinessesForSale TEXT ----------
+def extract_businessesforsale_text(text):
+    name_match = re.search(r"Name:\s*(.*)", text)
+    name = name_match.group(1).strip() if name_match else ''
+    first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
+    email_match = re.search(r"Email:\s*(.*)", text)
+    email = email_match.group(1).strip() if email_match else ''
 
-# -----------------------------
-# BusinessesForSale HTML Parser
-# -----------------------------
-def extract_bfs_html(html_body):
-    soup = BeautifulSoup(html.unescape(html_body), "html.parser")
+    phone_match = re.search(r"Tel:\s*(.*)", text)
+    phone = phone_match.group(1).replace(' ', '') if phone_match else ''
 
-    # Parse main content
-    ref_id = ''
-    headline = ''
-    url = ''
-    for line in soup.stripped_strings:
-        if 'Your listing ref:' in line:
-            ref_id = line.split('Your listing ref:')[-1].split()[0]
-        elif line.startswith('http') and 'businessesforsale' in line:
-            url = line.strip()
-        elif len(line) > 10 and headline == '' and 'listing ref' in line.lower():
-            headline = line.split('listing ref:')[1].strip() if 'listing ref:' in line else line
+    ref_id_match = re.search(r"listing ref:(\d+)", text)
+    ref_id = ref_id_match.group(1).strip() if ref_id_match else ''
 
-    # Extract user info
-    name_match = re.search(r'Name:\s*(.*)', html_body)
-    first_name, last_name = ('', '')
-    if name_match:
-        full_name = name_match.group(1).strip()
-        first_name, last_name = full_name.split(' ', 1) if ' ' in full_name else (full_name, '')
+    headline_match = re.search(r"listing ref:\d+\s*(.*?)\s*https?://", text, re.DOTALL)
+    headline = headline_match.group(1).strip() if headline_match else ''
+
+    url_match = re.search(r"(https?://\S+)", text)
+    listing_url = url_match.group(1).strip() if url_match else ''
+
+    comments_match = re.search(r"received the following message:\s*(.*?)\s*Name:", text, re.DOTALL)
+    comments = comments_match.group(1).strip() if comments_match else ''
 
     return {
         "first_name": first_name,
         "last_name": last_name,
-        "email": re.search(r'Email:\s*(.*)', html_body).group(1).strip() if 'Email:' in html_body else '',
-        "phone": re.sub(r"\s+", "", re.search(r'Tel:\s*(.*)', html_body).group(1).strip()) if 'Tel:' in html_body else '',
+        "email": email,
+        "phone": phone,
         "ref_id": ref_id,
         "headline": headline,
-        "listing_url": url,
-        "comments": re.search(r'has received the following message:\n\n(.*?)\n\n', html_body, re.DOTALL).group(1).strip() if 'has received the following message:' in html_body else ''
+        "listing_url": listing_url,
+        "comments": comments
     }
 
-# -----------------------------
-# BusinessesForSale Text Parser
-# -----------------------------
-def extract_bfs_text(text):
-    return extract_bfs_html(text)  # works identically for both
-
-# -----------------------------
-# Routing
-# -----------------------------
+# ---------- Main Entry Point ----------
 @app.route('/api/parse', methods=['POST'])
 def parse_html():
     try:
         raw_body = request.get_data(as_text=True)
         if not raw_body:
-            return jsonify({"error": "No email content provided."}), 400
+            return jsonify({"error": "No input received"}), 400
 
-        lower = raw_body.lower()
+        lower_body = raw_body.lower()
 
-        # BizBuySell
-        if "bizbuysell" in lower:
-            if "<html" in lower:
-                parsed_data = extract_bizbuysell_html(raw_body)
+        if "bizbuysell" in lower_body:
+            if "<html" in lower_body or "<b>" in lower_body or "<span" in lower_body:
+                parsed = extract_bizbuysell_html(raw_body)
             else:
-                parsed_data = extract_bizbuysell_text(raw_body)
-            return jsonify({"source": "bizbuysell", "parsed_data": parsed_data})
+                parsed = extract_bizbuysell_text(raw_body)
+            return jsonify({"source": "bizbuysell", "parsed_data": parsed})
 
-        # BusinessesForSale
-        if "businessesforsale" in lower:
-            if "<html" in lower:
-                parsed_data = extract_bfs_html(raw_body)
-            else:
-                parsed_data = extract_bfs_text(raw_body)
-            return jsonify({"source": "businessesforsale", "parsed_data": parsed_data})
+        elif "businessesforsale" in lower_body:
+            parsed = extract_businessesforsale_text(raw_body)
+            return jsonify({"source": "businessesforsale", "parsed_data": parsed})
 
         return jsonify({"source": "unknown", "parsed_data": {}})
 
