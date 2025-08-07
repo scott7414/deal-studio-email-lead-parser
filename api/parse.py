@@ -37,8 +37,11 @@ def extract_bizbuysell(html_body):
     phone = search_line("Contact Phone")
     ref_id = search_line("Ref ID")
     listing_id = search_line("Listing ID")
-    headline = re.search(r"regarding your listing:\n(.*?)\n", full_text, re.IGNORECASE)
-    headline = headline.group(1).strip() if headline else ""
+    headline = ""
+headline_match = re.search(r"regarding your listing:\s*\n(.*?)(?:\n|Listing ID:)", full_text, re.IGNORECASE)
+if headline_match:
+    headline = headline_match.group(1).strip()
+
 
     contact_zip = search_line("Contact Zip")
     investment_amount = search_line("Able to Invest")
