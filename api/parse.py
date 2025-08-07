@@ -37,15 +37,33 @@ def extract_bizbuysell(html):
         "source": source
     }
 
-# This is the expected Vercel handler format
 def handler(request):
     try:
-        body = request.get("body", "")
-        html = body.encode('utf-8').decode('utf-8')
+        html = request.get("body", "")
+        if not html:
+            return {
+                "statusCode": 400,
+                "body": "Missing HTML body"
+            }
 
         if 'bizbuysell' in html:
             parsed = extract_bizbuysell(html)
             source = "bizbuysell"
         else:
             parsed = {}
-            source
+            source = "unknown"
+
+        return {
+            "statusCode": 200,
+            "headers": { "Content-Type": "application/json" },
+            "body": {
+                "source": source,
+                "parsed_data": parsed
+            }
+        }
+
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "body": f"Internal Server Error: {str(e)}"
+        }
