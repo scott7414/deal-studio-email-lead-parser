@@ -80,9 +80,8 @@ def extract_bizbuysell(html_body):
 def extract_businessesforsale(text_body):
     lines = text_body.replace('\r', '').split('\n')
     lines = [line.strip() for line in lines if line.strip()]
-    full_text = "\n".join(lines)
-
     name = email = phone = ref_id = headline = listing_url = comments = ''
+    full_text = "\n".join(lines)
 
     name_match = re.search(r'Name:\s*(.+)', full_text)
     if name_match:
@@ -95,7 +94,7 @@ def extract_businessesforsale(text_body):
 
     phone_match = re.search(r'Tel:\s*([+()0-9\s-]+)', full_text)
     if phone_match:
-        phone = phone_match.group(1).strip()
+        phone = re.sub(r"\s+", "", phone_match.group(1).strip())
 
     ref_match = re.search(r'listing ref:(\d+)', full_text, re.IGNORECASE)
     if ref_match:
@@ -129,18 +128,16 @@ def extract_businessesforsale(text_body):
 @app.route('/api/parse', methods=['POST'])
 def parse_html():
     try:
-        body = request.get_data(as_text=True)
-        if not body:
-            return jsonify({"error": "No content provided."}), 400
+        html_body = request.get_data(as_text=True)
+        if not html_body:
+            return jsonify({"error": "No HTML content provided."}), 400
 
-        lowered = body.lower()
-
-        if "bizbuysell" in lowered:
-            parsed_data = extract_bizbuysell(body)
+        if "bizbuysell" in html_body.lower():
+            parsed_data = extract_bizbuysell(html_body)
             return jsonify({"source": "bizbuysell", "parsed_data": parsed_data})
 
-        elif "businessesforsale.com" in lowered:
-            parsed_data = extract_businessesforsale(body)
+        elif "businessesforsale.com" in html_body.lower():
+            parsed_data = extract_businessesforsale(html_body)
             return jsonify({"source": "businessesforsale", "parsed_data": parsed_data})
 
         return jsonify({"source": "unknown", "parsed_data": {}})
