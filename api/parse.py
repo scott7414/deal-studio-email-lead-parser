@@ -67,27 +67,38 @@ def extract_bizbuysell_html(html_body):
 # -----------------------------
 # BizBuySell Text Parser
 # -----------------------------
-def extract_bizbuysell_text(text):
-    def find_val(label):
+import re
+
+def extract_bizbuysell_text_version(text):
+    def get_value(label):
         match = re.search(rf"{label}:\s*(.*)", text)
         return match.group(1).strip() if match else ''
 
-    name = find_val("Contact Name")
+    name = get_value("Contact Name")
     first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
+
+    # Special handling for 'Purchase Within' to stop before 'Comments'
+    purchase_within_match = re.search(r"Purchase Within:\s*(.*?)\s*Comments:", text, re.DOTALL)
+    purchase_timeline = purchase_within_match.group(1).strip() if purchase_within_match else ''
+
+    # Comments line should only start after 'Comments:'
+    comments_match = re.search(r"Comments:\s*(.*)", text, re.DOTALL)
+    comments = comments_match.group(1).strip() if comments_match else ''
 
     return {
         "first_name": first_name,
         "last_name": last_name,
-        "email": find_val("Contact Email"),
-        "phone": find_val("Contact Phone"),
-        "ref_id": find_val("Ref ID"),
-        "listing_id": find_val("Listing ID"),
-        "headline": find_val("You’ve received a new lead regarding your listing"),
-        "contact_zip": find_val("Contact Zip"),
-        "investment_amount": find_val("Able to Invest"),
-        "purchase_timeline": find_val("Purchase Within"),
-        "comments": find_val("Comments")
+        "email": get_value("Contact Email"),
+        "phone": get_value("Contact Phone"),
+        "ref_id": get_value("Ref ID"),
+        "listing_id": get_value("Listing ID"),
+        "headline": extract_headline_from_text(text),  # Assuming function exists
+        "contact_zip": get_value("Contact Zip"),
+        "investment_amount": get_value("Able to Invest"),
+        "purchase_timeline": purchase_timeline,
+        "comments": comments
     }
+
 
 # -----------------------------
 # BusinessesForSale HTML Parser
