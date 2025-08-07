@@ -8,7 +8,7 @@ app = Flask(__name__)
 def extract_bizbuysell(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
-    # ✅ Extract actual source email from the "From:" row
+    # Extract actual source email from the "From:" row
     source = None
     source_block = soup.find(string=re.compile("From:"))
     if source_block:
@@ -19,7 +19,7 @@ def extract_bizbuysell(html_body):
         if match:
             source = match.group(0)
 
-    # ✅ Extract headline (skip "From:")
+    # Headline
     headline = None
     for b in soup.find_all('b'):
         text = b.get_text(strip=True)
@@ -27,24 +27,24 @@ def extract_bizbuysell(html_body):
             headline = text
             break
 
-    # ✅ Contact name
+    # Contact name
     name_tag = soup.find('b', string=re.compile('Contact Name'))
     name = name_tag.find_next('span').get_text(strip=True) if name_tag else ''
     first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
-    # ✅ Contact email
+    # Email
     email_tag = soup.find('b', string=re.compile('Contact Email'))
     email = email_tag.find_next('span').get_text(strip=True) if email_tag else None
 
-    # ✅ Contact phone
+    # Phone
     phone_tag = soup.find('b', string=re.compile('Contact Phone'))
     phone = phone_tag.find_next('span').get_text(strip=True) if phone_tag else None
 
-    # ✅ Ref ID
+    # Ref ID
     ref_id_match = soup.find(text=re.compile('Ref ID'))
     ref_id = ref_id_match.find_next(text=True).strip() if ref_id_match else None
 
-    # ✅ Listing ID
+    # Listing ID
     listing_id = None
     span_tags = soup.find_all('span')
     for span in span_tags:
@@ -54,12 +54,16 @@ def extract_bizbuysell(html_body):
                 listing_id = a.get_text(strip=True)
                 break
 
-    # ✅ Optional fields (safe fallback if missing)
+    # Optional fields: robust extraction
     def extract_optional(label):
         try:
             tag = soup.find('b', string=re.compile(label))
-            return tag.find_next('span').get_text(strip=True) if tag else ''
-        except:
+            if tag:
+                span = tag.find_next('span')
+                if span:
+                    return span.get_text(strip=True)
+            return ''
+        except Exception:
             return ''
 
     contact_zip = extract_optional('Contact Zip')
@@ -67,7 +71,6 @@ def extract_bizbuysell(html_body):
     purchase_timeline = extract_optional('Purchase Within')
     comments = extract_optional('Comments')
 
-    # ✅ Return full result with all fields
     return {
         "first_name": first_name,
         "last_name": last_name,
@@ -77,10 +80,10 @@ def extract_bizbuysell(html_body):
         "listing_id": listing_id or '',
         "headline": headline or '',
         "source": source or '',
-        "contact_zip": contact_zip or '',
-        "investment_amount": investment_amount or '',
-        "purchase_timeline": purchase_timeline or '',
-        "comments": comments or ''
+        "contact_zip": contact_zip,
+        "investment_amount": investment_amount,
+        "purchase_timeline": purchase_timeline,
+        "comments": comments
     }
 
 @app.route('/api/parse', methods=['POST'])
