@@ -79,7 +79,6 @@ def extract_bizbuysell(html_body):
         "ref_id": ref_id or '',
         "listing_id": listing_id or '',
         "headline": headline or '',
-        "source": source or '',
         "contact_zip": contact_zip,
         "investment_amount": investment_amount,
         "purchase_timeline": purchase_timeline,
