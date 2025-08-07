@@ -5,6 +5,11 @@ import re
 
 app = Flask(__name__)
 
+# --- Helper to clean "Not disclosed" values ---
+def remove_not_disclosed_fields(data):
+    return {k: ('' if isinstance(v, str) and 'not disclosed' in v.lower() else v) for k, v in data.items()}
+
+
 def extract_bizbuysell_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
