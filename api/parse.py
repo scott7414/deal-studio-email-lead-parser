@@ -88,10 +88,11 @@ def extract_bizbuysell_text_version(text):
 
         if line.startswith("Contact Name:"):
             name = line.split("Contact Name:", 1)[-1].strip()
-            if " " in name:
-                data["first_name"], data["last_name"] = name.split(" ", 1)
-            else:
-                data["first_name"] = name
+            if name:
+                if " " in name:
+                    data["first_name"], data["last_name"] = name.split(" ", 1)
+                else:
+                    data["first_name"] = name
         elif line.startswith("Contact Email:"):
             data["email"] = line.split("Contact Email:", 1)[-1].strip()
         elif line.startswith("Contact Phone:"):
@@ -101,7 +102,6 @@ def extract_bizbuysell_text_version(text):
         elif line.startswith("Able to Invest:"):
             data["investment_amount"] = line.split("Able to Invest:", 1)[-1].strip()
         elif line.startswith("Purchase Within:"):
-            # Check if next line is a normal value or actually starts with "Comments"
             if i + 1 < len(lines):
                 next_line = lines[i + 1].strip()
                 if not next_line.startswith("Comments:"):
@@ -113,7 +113,6 @@ def extract_bizbuysell_text_version(text):
         elif line.startswith("Ref ID:"):
             data["ref_id"] = line.split("Ref ID:", 1)[-1].strip()
         elif "You’ve received a new lead regarding your listing:" in line:
-            # Headline typically follows this line
             if i + 1 < len(lines):
                 data["headline"] = lines[i + 1].strip()
 
