@@ -181,11 +181,13 @@ def parse_email():
                 parsed = extract_bizbuysell_html(html_body)
             else:
                 parsed = extract_bizbuysell_text(html_body)
-            return jsonify({"source": "bizbuysell", "parsed_data": parsed})
+            cleaned = remove_not_disclosed_fields(parsed)
+            return jsonify({"source": "bizbuysell", "parsed_data": cleaned})
 
         elif "businessesforsale.com" in lowered:
             parsed = extract_businessesforsale_text(html_body)
-            return jsonify({"source": "businessesforsale", "parsed_data": parsed})
+            cleaned = remove_not_disclosed_fields(parsed)
+            return jsonify({"source": "businessesforsale", "parsed_data": cleaned})
 
         return jsonify({"source": "unknown", "parsed_data": {}})
     except Exception as e:
