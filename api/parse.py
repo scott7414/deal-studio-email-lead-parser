@@ -1,7 +1,3 @@
-from bs4 import BeautifulSoup
-import html
-import re
-
 def extract_bizbuysell(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
@@ -37,18 +33,9 @@ def extract_bizbuysell(html_body):
     phone_tag = soup.find('b', string=re.compile('Contact Phone'))
     phone = phone_tag.find_next('span').get_text(strip=True) if phone_tag else None
 
-    # Ref ID (fallback if not found normally)
-    ref_id = ''
-    ref_id_tag = soup.find(string=re.compile(r'Ref ID'))
-    if ref_id_tag:
-        ref_line = ref_id_tag.strip()
-        match = re.search(r'Ref ID:\s*(\d+)', ref_line)
-        if not match:
-            next_line = ref_id_tag.find_next(string=True)
-            if next_line:
-                match = re.search(r'(\d+)', next_line)
-        if match:
-            ref_id = match.group(1)
+    # Ref ID
+    ref_id_match = soup.find(text=re.compile('Ref ID'))
+    ref_id = ref_id_match.find_next(text=True).strip() if ref_id_match else None
 
     # Listing ID
     listing_id = None
@@ -73,11 +60,11 @@ def extract_bizbuysell(html_body):
     purchase_timeline = extract_optional('Purchase Within')
     comments = extract_optional('Comments')
 
-    return {
+       return {
         "first_name": first_name,
         "last_name": last_name,
         "email": email,
-        "phone": re.sub(r'\D', '', phone) if phone else None,
+        "phone": phone,
         "ref_id": ref_id or '',
         "listing_id": listing_id or '',
         "headline": headline,
