@@ -1,7 +1,7 @@
 def extract_bizbuysell(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
-    # ✅ Extract actual source email from the "From:" line
+    # Extract actual source email from the "From:" line
     source = None
     source_block = soup.find(string=re.compile("From:"))
     if source_block:
@@ -12,7 +12,7 @@ def extract_bizbuysell(html_body):
         if match:
             source = match.group(0)
 
-    # ✅ Extract headline
+    # Headline
     headline = None
     for b in soup.find_all('b'):
         text = b.get_text(strip=True)
@@ -20,33 +20,34 @@ def extract_bizbuysell(html_body):
             headline = text
             break
 
-    # ✅ Contact name
+    # Contact name
     name_tag = soup.find('b', string=re.compile('Contact Name'))
     name = name_tag.find_next('span').get_text(strip=True) if name_tag else ''
     first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
-    # ✅ Contact email
+    # Contact email
     email_tag = soup.find('b', string=re.compile('Contact Email'))
     email = email_tag.find_next('span').get_text(strip=True) if email_tag else None
 
-    # ✅ Phone
+    # Contact phone
     phone_tag = soup.find('b', string=re.compile('Contact Phone'))
     phone = phone_tag.find_next('span').get_text(strip=True) if phone_tag else None
 
-    # ✅ Ref ID
+    # Ref ID
     ref_id_match = soup.find(text=re.compile('Ref ID'))
     ref_id = ref_id_match.find_next(text=True).strip() if ref_id_match else None
 
-    # ✅ Listing ID
+    # Listing ID
     listing_id = None
-    for span in soup.find_all('span'):
+    span_tags = soup.find_all('span')
+    for span in span_tags:
         if 'Listing ID:' in span.get_text():
             a = span.find_next('a')
             if a:
                 listing_id = a.get_text(strip=True)
                 break
 
-    # ✅ Additional fields
+    # New optional fields
     def extract_optional(label):
         tag = soup.find('b', string=re.compile(label))
         return tag.find_next('span').get_text(strip=True) if tag else ''
