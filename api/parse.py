@@ -67,73 +67,48 @@ def extract_bizbuysell_html(html_body):
 # -----------------------------
 # BizBuySell Text Parser
 # -----------------------------
+import re
+
 def extract_bizbuysell_text_version(text):
-    try:
-        lines = text.splitlines()
-        data = {
-            "first_name": "",
-            "last_name": "",
-            "email": "",
-            "phone": "",
-            "ref_id": "",
-            "listing_id": "",
-            "headline": "",
-            "contact_zip": "",
-            "investment_amount": "",
-            "purchase_timeline": "",
-            "comments": ""
-        }
+    def get_value(label):
+        match = re.search(rf"{label}:\s*(.*)", text)
+        return match.group(1).strip() if match else ''
 
-        for i, line in enumerate(lines):
-            line = line.strip()
+    # Handle full name
+    name = get_value("Contact Name")
+    first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
-            if line.startswith("Contact Name:"):
-                name = line.split("Contact Name:", 1)[-1].strip()
-                if name:
-                    name_parts = name.split(" ", 1)
-                    data["first_name"] = name_parts[0]
-                    data["last_name"] = name_parts[1] if len(name_parts) > 1 else ""
-            elif line.startswith("Contact Email:"):
-                data["email"] = line.split("Contact Email:", 1)[-1].strip()
-            elif line.startswith("Contact Phone:"):
-                data["phone"] = line.split("Contact Phone:", 1)[-1].strip()
-            elif line.startswith("Contact Zip:"):
-                data["contact_zip"] = line.split("Contact Zip:", 1)[-1].strip()
-            elif line.startswith("Able to Invest:"):
-                data["investment_amount"] = line.split("Able to Invest:", 1)[-1].strip()
-            elif line.startswith("Purchase Within:"):
-                # Look ahead for next line, unless it's Comments
-                next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
-                if not next_line.startswith("Comments:"):
-                    data["purchase_timeline"] = next_line
-            elif line.startswith("Comments:"):
-                data["comments"] = line.split("Comments:", 1)[-1].strip()
-            elif line.startswith("Listing ID:"):
-                data["listing_id"] = line.split("Listing ID:", 1)[-1].strip()
-            elif line.startswith("Ref ID:"):
-                data["ref_id"] = line.split("Ref ID:", 1)[-1].strip()
-            elif "You’ve received a new lead regarding your listing:" in line:
-                # Get the next line as the headline
-                data["headline"] = lines[i + 1].strip() if i + 1 < len(lines) else ""
+    # Handle headline (just before "Listing ID")
+    headline_match = re.search(r"regarding your listing:\s*(.*?)\s*Listing ID:", text, re.DOTALL)
+    headline = headline_match.group(1).strip() if headline_match else ''
 
-        return data
+    # Handle Purchase Timeline (stopping at "Comments")
+    purchase_timeline = ''
+    purchase_match = re.search(r"Purchase Within:\s*(.*?)\s*Comments:", text, re.DOTALL)
+    if purchase_match:
+        purchase_timeline = purchase_match.group(1).strip()
 
-    except Exception as e:
-        # Always return something, even if parsing failed
-        return {
-            "first_name": "",
-            "last_name": "",
-            "email": "",
-            "phone": "",
-            "ref_id": "",
-            "listing_id": "",
-            "headline": "",
-            "contact_zip": "",
-            "investment_amount": "",
-            "purchase_timeline": "",
-            "comments": "",
-            "error": f"Parsing failed: {str(e)}"
-        }
+    # Handle Comments
+    comments = ''
+    comments_match = re.search(r"Comments:\s*(.*)", text, re.DOTALL)
+    if comments_match:
+        # Stop at first newline if present (to avoid pulling rest of email)
+        comments = comments_match.group(1).strip().split('\n')[0].strip()
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": get_value("Contact Email"),
+        "phone": get_value("Contact Phone"),
+        "ref_id": get_value("Ref ID"),
+        "listing_id": get_value("Listing ID"),
+        "headline": headline,
+        "contact_zip": get_value("Contact Zip"),
+        "investment_amount": get_value("Able to Invest"),
+        "purchase_timeline": purchase_timeline,
+        "comments": comments
+    }
+
 
 
 # -----------------------------
