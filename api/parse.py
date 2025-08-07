@@ -67,10 +67,10 @@ def extract_bizbuysell(html_body):
         "phone": phone,
         "ref_id": ref_id or '',
         "listing_id": listing_id or '',
-        "headline": headline or '',
-        "source": source or '',
-        "contact_zip": contact_zip or '',
-        "investment_amount": investment_amount or '',
-        "purchase_timeline": purchase_timeline or '',
-        "comments": comments or ''
+        "headline": headline,
+        "source": source,
+        "contact_zip": contact_zip,
+        "investment_amount": investment_amount,
+        "purchase_timeline": purchase_timeline,
+        "comments": comments
     }
