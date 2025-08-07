@@ -1,23 +1,15 @@
-from flask import Flask, request, jsonify
-from bs4 import BeautifulSoup
-import html
-import re
-
-app = Flask(__name__)
-
 def extract_bizbuysell(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
-    def extract_text(label):
-        tag = soup.find('b', string=re.compile(label))
-        if tag:
-            return tag.find_next(text=True).strip()
-        return None
+    # Extract actual source email from the "From:" row
+    source = None
+    from_line = soup.find(text=re.compile("From:"))
+    if from_line and from_line.parent and from_line.parent.next_sibling:
+        source_match = re.search(r'[\w\.-]+@[\w\.-]+', str(from_line.parent.next_sibling))
+        if source_match:
+            source = source_match.group(0)
 
-    # Extract source email (e.g., interest@bizbuysell.com)
-    source = extract_text('From:')
-
-    # Extract headline (not "From:", and long enough)
+    # Extract correct headline (skip "From:" and short <b> tags)
     headline = None
     for b in soup.find_all('b'):
         text = b.get_text(strip=True)
@@ -42,13 +34,15 @@ def extract_bizbuysell(html_body):
     ref_id_match = soup.find(text=re.compile('Ref ID'))
     ref_id = ref_id_match.find_next(text=True).strip() if ref_id_match else None
 
-    # Extract Listing ID
-    listing_id_tag = soup.find(string=re.compile("Listing ID:"))
+    # Extract Listing ID (look for a tag with text 'Listing ID:' and next <a>)
     listing_id = None
-    if listing_id_tag:
-        next_a = listing_id_tag.find_next("a")
-        if next_a:
-            listing_id = next_a.get_text(strip=True)
+    span_tags = soup.find_all('span')
+    for span in span_tags:
+        if 'Listing ID:' in span.get_text():
+            a = span.find_next('a')
+            if a:
+                listing_id = a.get_text(strip=True)
+                break
 
     return {
         "first_name": first_name,
@@ -60,22 +54,3 @@ def extract_bizbuysell(html_body):
         "headline": headline,
         "source": source
     }
-
-@app.route('/api/parse', methods=['POST'])
-def parse_html():
-    try:
-        html_body = request.get_data(as_text=True)
-        if not html_body:
-            return jsonify({"error": "No HTML content provided."}), 400
-
-        if "bizbuysell" in html_body.lower():
-            parsed_data = extract_bizbuysell(html_body)
-            return jsonify({"source": "bizbuysell", "parsed_data": parsed_data})
-
-        return jsonify({"source": "unknown", "parsed_data": {}})
-
-    except Exception as e:
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
-
-if __name__ == "__main__":
-    app.run()
