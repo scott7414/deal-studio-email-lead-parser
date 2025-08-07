@@ -8,20 +8,19 @@ app = Flask(__name__)
 def extract_bizbuysell(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
-    # ✅ Extract actual source email from the "From:" line
+    # ✅ FIX: Extract actual source email from the "From:" row
     source = None
-    from_line = soup.find(string=re.compile("From:"))
-    if from_line:
-        combined_text = str(from_line)
-        if from_line.parent:
-            combined_text += str(from_line.parent)
-            if from_line.parent.next_sibling:
-                combined_text += str(from_line.parent.next_sibling)
-        email_match = re.search(r'[\w\.-]+@[\w\.-]+', combined_text)
-        if email_match:
-            source = email_match.group(0)
+    source_block = soup.find(string=re.compile("From:"))
+    if source_block:
+        # Check the whole parent line for the email address
+        full_line = source_block
+        if source_block.parent and source_block.parent.next_sibling:
+            full_line += str(source_block.parent.next_sibling)
+        match = re.search(r'[\w\.-]+@[\w\.-]+', full_line)
+        if match:
+            source = match.group(0)
 
-    # ✅ Extract headline (ignore short/label bolds)
+    # ✅ Headline logic from working version
     headline = None
     for b in soup.find_all('b'):
         text = b.get_text(strip=True)
@@ -29,24 +28,19 @@ def extract_bizbuysell(html_body):
             headline = text
             break
 
-    # ✅ Extract contact name
     name_tag = soup.find('b', string=re.compile('Contact Name'))
     name = name_tag.find_next('span').get_text(strip=True) if name_tag else ''
     first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
-    # ✅ Extract contact email
     email_tag = soup.find('b', string=re.compile('Contact Email'))
     email = email_tag.find_next('span').get_text(strip=True) if email_tag else None
 
-    # ✅ Extract contact phone
     phone_tag = soup.find('b', string=re.compile('Contact Phone'))
     phone = phone_tag.find_next('span').get_text(strip=True) if phone_tag else None
 
-    # ✅ Extract Ref ID
     ref_id_match = soup.find(text=re.compile('Ref ID'))
     ref_id = ref_id_match.find_next(text=True).strip() if ref_id_match else None
 
-    # ✅ Extract Listing ID
     listing_id = None
     span_tags = soup.find_all('span')
     for span in span_tags:
