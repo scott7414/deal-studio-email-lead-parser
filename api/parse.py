@@ -48,9 +48,9 @@ def normalize_phone_us_e164(phone: str) -> str:
     return '+1' + national
 
 
-# =========================
+# ✅=========================
 # BizBuySell (HTML)
-# =========================
+# ✅=========================
 def extract_bizbuysell_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
@@ -135,9 +135,9 @@ def extract_bizbuysell_html(html_body):
     }
 
 
-# =========================
+# ✅=========================
 # BizBuySell (TEXT)
-# =========================
+# ✅=========================
 def extract_bizbuysell_text(text_body):
     lines = text_body.replace('\r', '').split('\n')
     lines = [line.strip() for line in lines if line.strip()]
@@ -189,9 +189,9 @@ def extract_bizbuysell_text(text_body):
     }
 
 
-# =========================
+# ✅=========================
 # BusinessesForSale (TEXT)
-# =========================
+# ✅=========================
 def extract_businessesforsale_text(text_body):
     lines = text_body.replace('\r', '').split('\n')
     lines = [line.strip() for line in lines if line.strip()]
@@ -239,9 +239,9 @@ def extract_businessesforsale_text(text_body):
     }
 
 
-# =========================
+# ✅=========================
 # Murphy Business (HTML)
-# =========================
+# ✅=========================
 def extract_murphy_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
     text = soup.get_text(separator="\n")
@@ -283,9 +283,9 @@ def extract_murphy_html(html_body):
     }
 
 
-# =========================
+# ✅=========================
 # Murphy Business (TEXT)
-# =========================
+# ✅=========================
 def extract_murphy_text(text_body):
     text = text_body.replace('\r', '')
 
@@ -324,9 +324,9 @@ def extract_murphy_text(text_body):
     }
 
 
-# =========================
+# ✅=========================
 # Router
-# =========================
+# ✅=========================
 @app.route('/api/parse', methods=['POST'])
 def parse_email():
     try:
