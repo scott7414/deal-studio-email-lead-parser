@@ -5,24 +5,26 @@ import re
 
 app = Flask(__name__)
 
-# --- Helper to clean "Not disclosed" values ---
+# --- Helper to clean "Not disclosed" values (and variants) ---
 def remove_not_disclosed_fields(data):
     return {
-        k: (
-            ''
-            if isinstance(v, str) and 'not disclosed' in v.lower().strip()
-            else v
-        )
+        k: ('' if isinstance(v, str) and 'not disclosed' in v.lower().strip() else v)
         for k, v in data.items()
     }
 
+# --- Common: normalize phone to digits only ---
+def normalize_phone(v: str) -> str:
+    return re.sub(r'\D', '', v or '')
 
 
+# =========================
+# BizBuySell (HTML)
+# =========================
 def extract_bizbuysell_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
-    # Extract headline
-    headline = None
+    # Headline
+    headline = ''
     for b in soup.find_all('b'):
         text = b.get_text(strip=True)
         if text.lower() != "from:" and len(text) > 10:
@@ -40,17 +42,26 @@ def extract_bizbuysell_html(html_body):
 
     # Phone
     phone_tag = soup.find('b', string=re.compile('Contact Phone'))
-    phone = phone_tag.find_next('span').get_text(strip=True) if phone_tag else ''
-    phone = re.sub(r'\D', '', phone)
+    phone = normalize_phone(phone_tag.find_next('span').get_text(strip=True) if phone_tag else '')
 
-    # Ref ID
+    # Ref ID (works when "Ref ID:" and value are split oddly)
+    ref_id = ''
     ref_id_match = soup.find(string=re.compile('Ref ID'))
-    ref_id = ref_id_match.find_next(string=True).strip() if ref_id_match else ''
+    if ref_id_match:
+        # Try same node first
+        m = re.search(r'Ref ID:\s*([A-Za-z0-9\-\_]+)', ref_id_match)
+        if m:
+            ref_id = m.group(1).strip()
+        else:
+            nxt = ref_id_match.find_next(string=True)
+            if nxt:
+                m2 = re.search(r'([A-Za-z0-9\-\_]+)', nxt)
+                if m2:
+                    ref_id = m2.group(1).strip()
 
     # Listing ID
     listing_id = ''
-    span_tags = soup.find_all('span')
-    for span in span_tags:
+    for span in soup.find_all('span'):
         if 'Listing ID:' in span.get_text():
             a = span.find_next('a')
             if a:
@@ -74,6 +85,7 @@ def extract_bizbuysell_html(html_body):
     purchase_timeline = extract_optional('Purchase Within')
     comments = extract_optional('Comments')
 
+    # Standardized set (include fields some sources don’t have)
     return {
         "first_name": first_name,
         "last_name": last_name,
@@ -85,96 +97,206 @@ def extract_bizbuysell_html(html_body):
         "contact_zip": contact_zip,
         "investment_amount": investment_amount,
         "purchase_timeline": purchase_timeline,
-        "comments": comments
+        "comments": comments,
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": ""
     }
 
+
+# =========================
+# BizBuySell (TEXT)
+# =========================
 def extract_bizbuysell_text(text_body):
     lines = text_body.replace('\r', '').split('\n')
     lines = [line.strip() for line in lines if line.strip()]
     full_text = "\n".join(lines)
 
     def get(label):
-        match = re.search(rf"{label}:\s*(.+)", full_text)
-        return match.group(1).strip() if match else ''
+        m = re.search(rf"{label}:\s*(.+)", full_text)
+        return m.group(1).strip() if m else ''
 
     name = get("Contact Name")
     first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
+    # Purchase Within until Comments
     purchase_timeline = ''
     pt_match = re.search(r'Purchase Within:\s*(.*?)\s*Comments:', full_text, re.DOTALL)
     if pt_match:
         purchase_timeline = pt_match.group(1).strip()
 
+    # Comments until typical footer phrasing
     comments = ''
-    cmt_match = re.search(r'Comments:\s*(.+)', full_text, re.DOTALL)
+    cmt_match = re.search(r'Comments:\s*((?:.|\n)*?)(?:\n(?:You can reply directly|We take our lead quality|Thank you,|$))', full_text)
     if cmt_match:
-        comments = cmt_match.group(1).split("You can reply")[0].strip()
+        comments = cmt_match.group(1).strip()
 
-    phone = get("Contact Phone")
-    phone = re.sub(r'\D', '', phone)
+    phone = normalize_phone(get("Contact Phone"))
+
+    # Headline from intro
+    headline = ''
+    h_match = re.search(r"regarding your listing:\s*(.*?)\s*Listing ID", full_text, re.DOTALL)
+    if h_match:
+        headline = h_match.group(1).strip()
 
     return {
         "first_name": first_name,
         "last_name": last_name,
         "email": get("Contact Email"),
         "phone": phone,
-        "ref_id": get("Ref ID"),
+        "ref_id": get("Ref ID").split('\n')[0].strip() if get("Ref ID") else '',
         "listing_id": get("Listing ID"),
-        "headline": get("Ref ID").split("\n")[0] if get("Ref ID") else '',
+        "headline": headline,
         "contact_zip": get("Contact Zip"),
         "investment_amount": get("Able to Invest"),
         "purchase_timeline": purchase_timeline,
-        "comments": comments
+        "comments": comments,
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": ""
     }
 
+
+# =========================
+# BusinessesForSale (TEXT)
+# =========================
 def extract_businessesforsale_text(text_body):
     lines = text_body.replace('\r', '').split('\n')
     lines = [line.strip() for line in lines if line.strip()]
-    name = email = phone = ref_id = headline = listing_url = comments = ''
     full_text = "\n".join(lines)
 
-    name_match = re.search(r'Name:\s*(.+)', full_text)
-    if name_match:
-        name = name_match.group(1).strip()
+    def get_field(label):
+        m = re.search(rf"{label}:\s*(.+)", full_text)
+        return m.group(1).strip() if m else ''
+
+    # ref + headline + URL in a block
+    ref_id, headline, listing_url = '', '', ''
+    block = re.search(r"Your listing ref:(\d+)\s+(.+)\n(https?://[^\s]+)", full_text)
+    if block:
+        ref_id, headline, listing_url = block.groups()
+        ref_id, headline, listing_url = ref_id.strip(), headline.strip(), listing_url.strip()
+
+    # name
+    name = get_field("Name")
     first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
-    email_match = re.search(r'Email:\s*([\w\.-]+@[\w\.-]+)', full_text)
-    if email_match:
-        email = email_match.group(1).strip()
+    # comments between markers
+    comments = ''
+    cmt = re.search(r"has received the following message:\s*\n\n(.+?)\n\nName:", full_text, re.DOTALL)
+    if cmt:
+        comments = cmt.group(1).strip()
 
-    phone_match = re.search(r'Tel:\s*([+()0-9\s-]+)', full_text)
-    if phone_match:
-        phone = re.sub(r'\D', '', phone_match.group(1).strip())
+    phone = normalize_phone(get_field("Tel"))
 
-    ref_match = re.search(r'listing ref:(\d+)', full_text, re.IGNORECASE)
-    if ref_match:
-        ref_id = ref_match.group(1).strip()
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": get_field("Email"),
+        "phone": phone,
+        "ref_id": ref_id,
+        "listing_id": "",
+        "headline": headline,
+        "contact_zip": "",
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": comments,
+        "listing_url": listing_url,
+        "services_interested_in": "",
+        "heard_about": ""
+    }
 
-    headline_match = re.search(r'listing ref:\d+\s*(.+)', full_text, re.IGNORECASE)
-    if headline_match:
-        headline = headline_match.group(1).strip()
 
-    url_match = re.search(r'(https?://[^\s]+)', full_text)
-    if url_match:
-        listing_url = url_match.group(1).strip()
+# =========================
+# Murphy Business (HTML)
+# =========================
+def extract_murphy_html(html_body):
+    soup = BeautifulSoup(html.unescape(html_body), "html.parser")
+    # their content is mostly plain text with <br>s; safest is to parse text
+    text = soup.get_text(separator="\n")
 
-    try:
-        msg_index = lines.index("has received the following message:")
-        comments = lines[msg_index + 1]
-    except:
-        pass
+    # Subject (optional headline)
+    headline = ''
+    subj = re.search(r"Subject:\s*(.+)", text)
+    if subj:
+        headline = subj.group(1).strip()
+
+    # Values
+    def get_after(label):
+        m = re.search(rf"{label}:\s*([^\n\r]+)", text, re.IGNORECASE)
+        return m.group(1).strip() if m else ''
+
+    name = get_after("Name")
+    first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
+
+    email = get_after("Email")
+    contact_zip = get_after("ZIP/Postal Code")
+    phone = normalize_phone(get_after("Phone"))
+    services = get_after("Services Interested In")
+    heard = get_after("How did you hear about us?")
 
     return {
         "first_name": first_name,
         "last_name": last_name,
         "email": email,
         "phone": phone,
-        "ref_id": ref_id,
+        "ref_id": "",
+        "listing_id": "",
         "headline": headline,
-        "listing_url": listing_url,
-        "comments": comments
+        "contact_zip": contact_zip,
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": "",
+        "listing_url": "",
+        "services_interested_in": services,
+        "heard_about": heard
     }
 
+
+# =========================
+# Murphy Business (TEXT)
+# =========================
+def extract_murphy_text(text_body):
+    text = text_body.replace('\r', '')
+    # Subject (optional headline)
+    headline = ''
+    subj = re.search(r"Subject:\s*(.+)", text)
+    if subj:
+        headline = subj.group(1).strip()
+
+    def get_after(label):
+        m = re.search(rf"{label}:\s*([^\n\r]+)", text, re.IGNORECASE)
+        return m.group(1).strip() if m else ''
+
+    name = get_after("Name")
+    first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
+
+    email = get_after("Email")
+    contact_zip = get_after("ZIP/Postal Code")
+    phone = normalize_phone(get_after("Phone"))
+    services = get_after("Services Interested In")
+    heard = get_after("How did you hear about us?")
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": "",
+        "listing_id": "",
+        "headline": headline,
+        "contact_zip": contact_zip,
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": "",
+        "listing_url": "",
+        "services_interested_in": services,
+        "heard_about": heard
+    }
+
+
+# =========================
+# Router
+# =========================
 @app.route('/api/parse', methods=['POST'])
 def parse_email():
     try:
@@ -183,23 +305,45 @@ def parse_email():
             return jsonify({"error": "No email content provided."}), 400
 
         lowered = html_body.lower()
+        is_html = ("<html" in lowered) or ("<body" in lowered) or ("<div" in lowered)
 
         if "bizbuysell" in lowered:
-            if "<html" in lowered or "<body" in lowered or "<div" in lowered:
-                parsed = extract_bizbuysell_html(html_body)
-            else:
-                parsed = extract_bizbuysell_text(html_body)
-            cleaned = remove_not_disclosed_fields(parsed)
-            return jsonify({"source": "bizbuysell", "parsed_data": cleaned})
+            parsed = extract_bizbuysell_html(html_body) if is_html else extract_bizbuysell_text(html_body)
+            parsed = remove_not_disclosed_fields(parsed)
+            return jsonify({"source": "bizbuysell", "parsed_data": parsed})
 
-        elif "businessesforsale.com" in lowered:
+        if "businessesforsale.com" in lowered:
             parsed = extract_businessesforsale_text(html_body)
-            cleaned = remove_not_disclosed_fields(parsed)
-            return jsonify({"source": "businessesforsale", "parsed_data": cleaned})
+            parsed = remove_not_disclosed_fields(parsed)
+            return jsonify({"source": "businessesforsale", "parsed_data": parsed})
 
-        return jsonify({"source": "unknown", "parsed_data": {}})
+        if "murphybusiness.com" in lowered or "murphy business" in lowered:
+            parsed = extract_murphy_html(html_body) if is_html else extract_murphy_text(html_body)
+            parsed = remove_not_disclosed_fields(parsed)
+            return jsonify({"source": "murphybusiness", "parsed_data": parsed})
+
+        # Unknown
+        empty = {
+            "first_name": "",
+            "last_name": "",
+            "email": "",
+            "phone": "",
+            "ref_id": "",
+            "listing_id": "",
+            "headline": "",
+            "contact_zip": "",
+            "investment_amount": "",
+            "purchase_timeline": "",
+            "comments": "",
+            "listing_url": "",
+            "services_interested_in": "",
+            "heard_about": ""
+        }
+        return jsonify({"source": "unknown", "parsed_data": empty})
+
     except Exception as e:
         return jsonify({"error": f"Server error: {str(e)}"}), 500
+
 
 if __name__ == "__main__":
     app.run()
