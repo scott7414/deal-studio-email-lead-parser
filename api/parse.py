@@ -211,18 +211,18 @@ def extract_businessesforsale_text(text_body):
 # =========================
 def extract_murphy_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
-    # their content is mostly plain text with <br>s; safest is to parse text
     text = soup.get_text(separator="\n")
 
-    # Subject (optional headline)
+    # Headline (Subject)
     headline = ''
-    subj = re.search(r"Subject:\s*(.+)", text)
+    subj = re.search(r"Subject:\s*(.+)", text, re.IGNORECASE)
     if subj:
         headline = subj.group(1).strip()
 
-    # Values
+    # More flexible field grabber (matches even with trailing colon, spaces, or breaks)
     def get_after(label):
-        m = re.search(rf"{label}:\s*([^\n\r]+)", text, re.IGNORECASE)
+        pattern = rf"{label}\s*:\s*([^\n\r]+)"
+        m = re.search(pattern, text, re.IGNORECASE)
         return m.group(1).strip() if m else ''
 
     name = get_after("Name")
@@ -232,7 +232,7 @@ def extract_murphy_html(html_body):
     contact_zip = get_after("ZIP/Postal Code")
     phone = normalize_phone(get_after("Phone"))
     services = get_after("Services Interested In")
-    heard = get_after("How did you hear about us?")
+    heard = get_after("How did you hear about us\??")  # allow optional ?
 
     return {
         "first_name": first_name,
@@ -257,14 +257,15 @@ def extract_murphy_html(html_body):
 # =========================
 def extract_murphy_text(text_body):
     text = text_body.replace('\r', '')
-    # Subject (optional headline)
+
     headline = ''
-    subj = re.search(r"Subject:\s*(.+)", text)
+    subj = re.search(r"Subject:\s*(.+)", text, re.IGNORECASE)
     if subj:
         headline = subj.group(1).strip()
 
     def get_after(label):
-        m = re.search(rf"{label}:\s*([^\n\r]+)", text, re.IGNORECASE)
+        pattern = rf"{label}\s*:\s*([^\n\r]+)"
+        m = re.search(pattern, text, re.IGNORECASE)
         return m.group(1).strip() if m else ''
 
     name = get_after("Name")
@@ -274,7 +275,7 @@ def extract_murphy_text(text_body):
     contact_zip = get_after("ZIP/Postal Code")
     phone = normalize_phone(get_after("Phone"))
     services = get_after("Services Interested In")
-    heard = get_after("How did you hear about us?")
+    heard = get_after("How did you hear about us\??")
 
     return {
         "first_name": first_name,
