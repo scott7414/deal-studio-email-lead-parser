@@ -12,9 +12,40 @@ def remove_not_disclosed_fields(data):
         for k, v in data.items()
     }
 
-# --- Common: normalize phone to digits only ---
-def normalize_phone(v: str) -> str:
-    return re.sub(r'\D', '', v or '')
+# --- Phone: normalize to E.164 (+1XXXXXXXXXX) for US/CA ---
+def normalize_phone_us_e164(phone: str) -> str:
+    """
+    Normalize US/Canada numbers to E.164 (+1XXXXXXXXXX).
+    Returns '' if not a valid 10/11-digit NANP number.
+    """
+    if not phone:
+        return ''
+
+    # Drop common extensions at the end (ext 123, x123, extension 123)
+    phone_wo_ext = re.sub(r'(?:ext|x|extension)[\s.:#-]*\d+\s*$', '', phone, flags=re.I)
+
+    # Keep digits only
+    digits = re.sub(r'\D', '', phone_wo_ext)
+
+    # Normalize leading IDD variants to 10 digits
+    if len(digits) == 13 and digits.startswith('001'):   # 001 + 10
+        digits = digits[3:]
+    elif len(digits) == 12 and digits.startswith('01'):  # 01 + 10
+        digits = digits[2:]
+
+    # Reduce to national (10) if starts with leading 1 and length 11
+    if len(digits) == 11 and digits.startswith('1'):
+        national = digits[1:]
+    elif len(digits) == 10:
+        national = digits
+    else:
+        # Last resort: try to capture the last 10 digits
+        m = re.search(r'(\d{10})$', digits)
+        if not m:
+            return ''
+        national = m.group(1)
+
+    return '+1' + national
 
 
 # =========================
@@ -40,15 +71,15 @@ def extract_bizbuysell_html(html_body):
     email_tag = soup.find('b', string=re.compile('Contact Email'))
     email = email_tag.find_next('span').get_text(strip=True) if email_tag else ''
 
-    # Phone
+    # Phone (E.164)
     phone_tag = soup.find('b', string=re.compile('Contact Phone'))
-    phone = normalize_phone(phone_tag.find_next('span').get_text(strip=True) if phone_tag else '')
+    phone_raw = phone_tag.find_next('span').get_text(strip=True) if phone_tag else ''
+    phone = normalize_phone_us_e164(phone_raw)
 
     # Ref ID (works when "Ref ID:" and value are split oddly)
     ref_id = ''
     ref_id_match = soup.find(string=re.compile('Ref ID'))
     if ref_id_match:
-        # Try same node first
         m = re.search(r'Ref ID:\s*([A-Za-z0-9\-\_]+)', ref_id_match)
         if m:
             ref_id = m.group(1).strip()
@@ -85,7 +116,7 @@ def extract_bizbuysell_html(html_body):
     purchase_timeline = extract_optional('Purchase Within')
     comments = extract_optional('Comments')
 
-    # Standardized set (include fields some sources don’t have)
+    # Standardized set
     return {
         "first_name": first_name,
         "last_name": last_name,
@@ -131,9 +162,10 @@ def extract_bizbuysell_text(text_body):
     if cmt_match:
         comments = cmt_match.group(1).strip()
 
-    phone = normalize_phone(get("Contact Phone"))
+    # Phone (E.164)
+    phone = normalize_phone_us_e164(get("Contact Phone"))
 
-    # Headline from intro
+    # Headline
     headline = ''
     h_match = re.search(r"regarding your listing:\s*(.*?)\s*Listing ID", full_text, re.DOTALL)
     if h_match:
@@ -186,7 +218,8 @@ def extract_businessesforsale_text(text_body):
     if cmt:
         comments = cmt.group(1).strip()
 
-    phone = normalize_phone(get_field("Tel"))
+    # Phone (E.164)
+    phone = normalize_phone_us_e164(get_field("Tel"))
 
     return {
         "first_name": first_name,
@@ -219,7 +252,7 @@ def extract_murphy_html(html_body):
     if subj:
         headline = subj.group(1).strip()
 
-    # More flexible field grabber (matches even with trailing colon, spaces, or breaks)
+    # Flexible field grabber
     def get_after(label):
         pattern = rf"{label}\s*:\s*([^\n\r]+)"
         m = re.search(pattern, text, re.IGNORECASE)
@@ -230,7 +263,8 @@ def extract_murphy_html(html_body):
 
     email = get_after("Email")
     contact_zip = get_after("ZIP/Postal Code")
-    phone = normalize_phone(get_after("Phone"))
+    # Phone (E.164)
+    phone = normalize_phone_us_e164(get_after("Phone"))
     services = get_after("Services Interested In")
     heard = get_after("How did you hear about us\??")  # allow optional ?
 
@@ -273,7 +307,8 @@ def extract_murphy_text(text_body):
 
     email = get_after("Email")
     contact_zip = get_after("ZIP/Postal Code")
-    phone = normalize_phone(get_after("Phone"))
+    # Phone (E.164)
+    phone = normalize_phone_us_e164(get_after("Phone"))
     services = get_after("Services Interested In")
     heard = get_after("How did you hear about us\??")
 
