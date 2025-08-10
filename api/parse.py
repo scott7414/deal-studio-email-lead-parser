@@ -248,9 +248,6 @@ def extract_murphy_html(html_body):
 
     # Headline (Subject)
     headline = ''
-    subj = re.search(r"Subject:\s*(.+)", text, re.IGNORECASE)
-    if subj:
-        headline = subj.group(1).strip()
 
     # Flexible field grabber
     def get_after(label):
@@ -293,9 +290,6 @@ def extract_murphy_text(text_body):
     text = text_body.replace('\r', '')
 
     headline = ''
-    subj = re.search(r"Subject:\s*(.+)", text, re.IGNORECASE)
-    if subj:
-        headline = subj.group(1).strip()
 
     def get_after(label):
         pattern = rf"{label}\s*:\s*([^\n\r]+)"
