@@ -1,5 +1,5 @@
 # =============================================
-# Lead Parser API — Revert-Safe (No brittle conversions; no 500s)
+# Lead Parser API — Revert-Safe (Stable, no 500s)
 # =============================================
 
 from flask import Flask, request, jsonify
@@ -433,53 +433,68 @@ def extract_businessbroker_text(text_body):
     }
 
 # ==============================
-# ✅ FCBB (HTML) — First Choice Business Brokers
+# ✅ FCBB (HTML) — First Choice Business Brokers (robust)
 # ==============================
 def extract_fcbb_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
-    text = soup.get_text("\n")
-    lines = [l.strip() for l in text.replace("\r", "").split("\n") if l.strip()]
+    # Prefer the block that contains both tel: and mailto: so we anchor to the right section
+    a_tel = soup.find('a', href=lambda h: h and h.lower().startswith('tel:'))
+    a_mail = soup.find('a', href=lambda h: h and h.lower().startswith('mailto:'))
 
-    first_name, last_name, ref_id, headline, phone, email = "", "", "", "", "", ""
+    first_name = last_name = ref_id = headline = phone = email = ""
 
-    # Find the "<ref> <headline>" line, e.g., "101-24127 Childcare Learning ..."
-    ref_idx = -1
-    ref_pat = re.compile(r'^\s*([A-Za-z0-9\-]{3,})\s+(.+)$')
-    for i, l in enumerate(lines):
-        m = ref_pat.match(l)
+    info_block = None
+    if a_tel and a_mail:
+        # climb ancestors from the tel link until one contains the mail link too
+        node = a_tel
+        while node and hasattr(node, 'find'):
+            if node.find('a', href=lambda h: h and h.lower().startswith('mailto:')):
+                info_block = node
+                break
+            node = node.parent
+
+    if info_block:
+        p_texts = [p.get_text(" ", strip=True) for p in info_block.find_all('p') if p.get_text(strip=True)]
+    else:
+        # fallback: whole document
+        p_texts = [t.strip() for t in soup.get_text("\n").replace("\r","").split("\n") if t.strip()]
+
+    # Find the "<ref> <headline>" line. Require at least one digit on BOTH sides of '-'
+    ref_line_idx = -1
+    ref_re = re.compile(r'^\s*((?:[A-Za-z]*\d+|\d+)[A-Za-z0-9\-]*-(?:[A-Za-z]*\d+|\d+)[A-Za-z0-9\-]*)\s+(.+)$')
+    for i, line in enumerate(p_texts):
+        m = ref_re.match(line)
         if m and any(c.isalpha() for c in m.group(2)):
             ref_id = m.group(1).strip()
             headline = m.group(2).strip()
-            ref_idx = i
+            ref_line_idx = i
             break
 
-    # Name likely just above ref line and contains no digits
-    def looks_like_phone(s):
-        return bool(re.search(r'\(?\d{3}\)?[^\d]?\d{3}[^\d]?\d{4}', s))
-    def looks_like_email(s):
-        return bool(re.search(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}', s))
+    # Name: usually immediately above ref line, all letters, no digits
+    if ref_line_idx > 0:
+        cand = p_texts[ref_line_idx - 1].strip()
+        if cand and not re.search(r'\d', cand) and '@' not in cand and '(' not in cand:
+            parts = cand.split()
+            first_name = parts[0]
+            last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
 
-    if ref_idx > 0:
-        name_candidate = lines[ref_idx - 1]
-        if not looks_like_phone(name_candidate) and not looks_like_email(name_candidate) and not re.search(r'\d', name_candidate):
-            parts = name_candidate.split()
-            if parts:
-                first_name = parts[0]
-                if len(parts) > 1:
-                    last_name = " ".join(parts[1:])
+    # Phone & Email
+    # Prefer anchors from the HTML if present
+    if a_tel:
+        phone = a_tel.get_text(strip=True)
+    if not phone:
+        joined = "\n".join(p_texts)
+        m = re.search(r'(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}', joined)
+        if m:
+            phone = m.group(0).strip()
 
-    # Phone and email: search after ref line first, then anywhere
-    for seq in (lines[ref_idx+1:] if ref_idx >= 0 else lines, lines):
-        if not phone:
-            m = re.search(r'(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}', "\n".join(seq))
-            if m:
-                phone = m.group(0).strip()
-        if not email:
-            m = re.search(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}', "\n".join(seq))
-            if m:
-                email = m.group(0).strip()
-        if phone and email:
-            break
+    if a_mail:
+        email = a_mail.get_text(strip=True)
+    if not email:
+        joined = "\n".join(p_texts)
+        m = re.search(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}', joined)
+        if m:
+            email = m.group(0).strip()
 
     phone = normalize_phone_us_e164(phone)
 
@@ -561,10 +576,10 @@ def parse_email():
     is_html = ("<html" in lowered) or ("<body" in lowered) or ("<div" in lowered)
 
     try:
-        # FCBB detection (logo/domain/footer text)
+        # FCBB detection
         if "fcbb.com" in lowered or "oms.fcbb.com" in lowered or "first choice business brokers" in lowered:
             try:
-                flat = extract_fcbb_html(body)  # FCBB sample is HTML
+                flat = extract_fcbb_html(body)
                 return jsonify(to_nested("fcbb", flat))
             except Exception as e:
                 return jsonify(to_nested("fcbb", {}, f"parse_failed: {e}"))
@@ -574,7 +589,6 @@ def parse_email():
                 flat = extract_bizbuysell_html(body) if is_html else extract_bizbuysell_text(body)
                 return jsonify(to_nested("bizbuysell", flat))
             except Exception as e:
-                # Fall back to text using stripped HTML
                 try:
                     text = BeautifulSoup(body, "html.parser").get_text("\n")
                     flat = extract_bizbuysell_text(text)
@@ -616,7 +630,6 @@ def parse_email():
         # Unknown
         return jsonify(to_nested("unknown", {}))
     except Exception as outer:
-        # Absolute last resort: never 500
         return jsonify(to_nested("unknown", {}, f"router_error: {outer}"))
 
 @app.route("/health", methods=["GET"])
