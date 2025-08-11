@@ -3,6 +3,20 @@ from bs4 import BeautifulSoup
 import html
 import re
 
+# ✅ Helper: Convert HTML to clean text if needed
+def html_to_normalized_text(raw: str) -> str:
+    lowered = raw.lower()
+    is_html = ("<html" in lowered) or ("<body" in lowered) or ("<div" in lowered) or ("<table" in lowered)
+    if not is_html:
+        return raw.replace('\r', '')
+
+    soup = BeautifulSoup(html.unescape(raw), "html.parser")
+    text = soup.get_text(separator="\n")
+    text = text.replace('\r', '')
+    text = re.sub(r'[ \t]+', ' ', text)  # collapse multiple spaces
+    text = re.sub(r'\n{3,}', '\n\n', text)  # collapse big blank blocks
+    return text.strip()
+
 app = Flask(__name__)
 
 # --- Helper to clean "Not disclosed" values (and variants) ---
@@ -11,6 +25,7 @@ def remove_not_disclosed_fields(data):
         k: ('' if isinstance(v, str) and 'not disclosed' in v.lower().strip() else v)
         for k, v in data.items()
     }
+
 
 # --- Phone: normalize to E.164 (+1XXXXXXXXXX) for US/CA ---
 def normalize_phone_us_e164(phone: str) -> str:
@@ -464,58 +479,47 @@ def extract_businessbroker_text(text_body):
 @app.route('/api/parse', methods=['POST'])
 def parse_email():
     try:
-        html_body = request.get_data(as_text=True)
-        if not html_body:
+        raw_body = request.get_data(as_text=True)
+        if not raw_body:
             return jsonify({"error": "No email content provided."}), 400
 
-        lowered = html_body.lower()
-        is_html = ("<html" in lowered) or ("<body" in lowered) or ("<div" in lowered)
+        text_body = html_to_normalized_text(raw_body)  # <<< normalize once
+        lowered = text_body.lower()
 
         if "bizbuysell" in lowered:
-            parsed = extract_bizbuysell_html(html_body) if is_html else extract_bizbuysell_text(html_body)
+            parsed = extract_bizbuysell_text(text_body)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "bizbuysell", "parsed_data": parsed})
 
         if "businessesforsale.com" in lowered:
-            parsed = extract_businessesforsale_text(html_body)
+            parsed = extract_businessesforsale_text(text_body)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "businessesforsale", "parsed_data": parsed})
 
         if "murphybusiness.com" in lowered or "murphy business" in lowered:
-            parsed = extract_murphy_html(html_body) if is_html else extract_murphy_text(html_body)
+            parsed = extract_murphy_text(text_body)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "murphybusiness", "parsed_data": parsed})
 
         if "businessbroker.net" in lowered:
-            parsed = extract_businessbroker_html(html_body) if is_html else extract_businessbroker_text(html_body)
+            parsed = extract_businessbroker_text(text_body)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "businessbroker", "parsed_data": parsed})
 
-        # Unknown: always return full schema so Make mapping is stable
+        # Unknown – return full flat schema for Make stability
         empty = {
-            "first_name": "",
-            "last_name": "",
-            "email": "",
-            "phone": "",
-            "ref_id": "",
-            "listing_id": "",
-            "headline": "",
-            "contact_zip": "",
-            "investment_amount": "",
-            "purchase_timeline": "",
-            "comments": "",
-            "listing_url": "",
-            "services_interested_in": "",
-            "heard_about": "",
-            "address": "",
-            "city": "",
-            "state": "",
+            "first_name": "", "last_name": "", "email": "", "phone": "",
+            "ref_id": "", "listing_id": "", "headline": "",
+            "contact_zip": "", "investment_amount": "", "purchase_timeline": "",
+            "comments": "", "listing_url": "", "services_interested_in": "",
+            "heard_about": "", "address": "", "city": "", "state": "",
             "best_time_to_contact": ""
         }
         return jsonify({"source": "unknown", "parsed_data": empty})
 
     except Exception as e:
         return jsonify({"error": f"Server error: {str(e)}"}), 500
+
 
 
 if __name__ == "__main__":
