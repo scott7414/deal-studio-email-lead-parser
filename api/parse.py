@@ -27,6 +27,7 @@
 
 from flask import Flask, request, jsonify
 import re
+import html
 from typing import Dict, Tuple
 
 try:
