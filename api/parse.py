@@ -86,16 +86,33 @@ app = Flask(__name__)
 # Parsers
 # =========================
 
+# ============================================================
 # BizBuySell (TEXT) — used for both HTML (after normalize) and text
+# ============================================================
 def extract_bizbuysell_text(text_body: str):
-    lines = text_body.replace('\r', '').split('\n')
-    lines = [line.strip() for line in lines if line.strip()]
+    # Split and keep trimmed, non-empty lines (order preserved)
+    lines = [ln.strip() for ln in text_body.replace('\r', '').split('\n') if ln.strip()]
     full_text = "\n".join(lines)
 
-    def get(label):
-        m = re.search(rf"{label}:\s*(.+)", full_text)
-        return m.group(1).strip() if m else ''
+    # Robust getter: grabs "Label: value" on the same line,
+    # or (if blank) takes the next non-label line as the value.
+    def get(label: str) -> str:
+        pat = re.compile(rf"^{label}\s*:\s*(.*)$", re.IGNORECASE)
+        for i, line in enumerate(lines):
+            m = pat.match(line)
+            if not m:
+                continue
+            v = (m.group(1) or "").strip()
+            if v:
+                return v  # same-line value
+            # try next line if it doesn't look like another label
+            if i + 1 < len(lines):
+                nxt = lines[i + 1].strip()
+                if not re.match(r"^[A-Za-z][A-Za-z/ \-]{1,40}:\s*$", nxt):
+                    return nxt
+        return ""
 
+    # Name
     name = get("Contact Name")
     first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
@@ -105,7 +122,7 @@ def extract_bizbuysell_text(text_body: str):
     if pt_match:
         purchase_timeline = pt_match.group(1).strip()
 
-    # Comments until footer-ish lines (robust)
+    # Comments until footer-ish lines (robust + one-line fallback)
     comments = ''
     cmt_match = re.search(
         r'Comments\s*:?\s*((?:.|\n)*?)(?:\n(?:You can reply directly|We take our lead quality|Thank you,|BizBuySell|Unsubscribe|Email Preferences|Terms of Use|Privacy Notice|Contact Us)\b|\Z)',
@@ -114,13 +131,12 @@ def extract_bizbuysell_text(text_body: str):
     )
     if cmt_match:
         comments = cmt_match.group(1).strip()
-    # one-line fallback
     if not comments:
         cmt_line = re.search(r'Comments\s*:?\s*(.+)', full_text, re.IGNORECASE)
         if cmt_line:
             comments = cmt_line.group(1).strip()
 
-    # Phone (E.164)
+    # Phone (E.164) – supports next-line value via get()
     phone = normalize_phone_us_e164(get("Contact Phone"))
 
     # Headline (between "regarding your listing:" and the next known label)
@@ -134,7 +150,7 @@ def extract_bizbuysell_text(text_body: str):
         "last_name": last_name,
         "email": get("Contact Email"),
         "phone": phone,
-        "ref_id": get("Ref ID").split('\n')[0].strip() if get("Ref ID") else '',
+        "ref_id": (get("Ref ID").split('\n')[0].strip() if get("Ref ID") else ''),
         "listing_id": get("Listing ID"),
         "headline": headline,
         "contact_zip": get("Contact Zip"),
