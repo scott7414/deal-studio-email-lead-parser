@@ -338,8 +338,8 @@ def extract_businessbroker_html(html_body):
     text = soup.get_text(separator="\n")
 
     def get_after(label):
-        # Grab value after label until the next Label: (inline or next line) or end of text
-        pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=(?:\s+[A-Z][A-Za-z/ ]{{1,30}}:)|\Z)"
+        # Stop at the next Label: even if there's NO space before it (e.g., "... Address:City: ...")
+        pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=(?:\s*[A-Za-z][A-Za-z/ ]{{1,30}}:)|\Z)"
         m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
         return m.group(1).strip() if m else ''
 
@@ -351,6 +351,10 @@ def extract_businessbroker_html(html_body):
         return ''
 
     headline    = get_after("Listing Header")
+    # Clean odd tails like "... BusinessBroker.net" if present
+    if headline:
+        headline = re.sub(r"\bBusinessBroker\.net\b.*$", "", headline, flags=re.I).strip()
+
     listing_id  = get_after("BusinessBroker.net Listing Number")
     ref_id      = get_after("Your Internal Listing Number")
     first_name  = get_after("First Name")
@@ -363,7 +367,7 @@ def extract_businessbroker_html(html_body):
     state       = get_after("State")
     best_time   = get_after_multi(["Best Time to Contact", "Best time to contact", "Best Time To Be Contacted"])
 
-    # Comments: capture anything after "Comments:" up to dashed line or end
+    # Comments up to dashed line or end
     comments = ''
     cmt = re.search(r"Comments\s*:\s*(.*?)(?:\n[-_]{3,}|\Z)", text, re.IGNORECASE | re.DOTALL)
     if cmt:
@@ -398,7 +402,7 @@ def extract_businessbroker_text(text_body):
     text = text_body.replace('\r', '')
 
     def get_after(label):
-        pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=(?:\s+[A-Z][A-Za-z/ ]{{1,30}}:)|\Z)"
+        pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=(?:\s*[A-Za-z][A-Za-z/ ]{{1,30}}:)|\Z)"
         m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
         return m.group(1).strip() if m else ''
 
@@ -410,6 +414,9 @@ def extract_businessbroker_text(text_body):
         return ''
 
     headline    = get_after("Listing Header")
+    if headline:
+        headline = re.sub(r"\bBusinessBroker\.net\b.*$", "", headline, flags=re.I).strip()
+
     listing_id  = get_after("BusinessBroker.net Listing Number")
     ref_id      = get_after("Your Internal Listing Number")
     first_name  = get_after("First Name")
@@ -447,6 +454,7 @@ def extract_businessbroker_text(text_body):
         "state": state,
         "best_time_to_contact": best_time
     }
+
 
 
 
