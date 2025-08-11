@@ -33,6 +33,7 @@ from flask import Flask, request, jsonify
 from bs4 import BeautifulSoup
 import html
 import re
+import traceback
 
 app = Flask(__name__)
 
@@ -581,7 +582,15 @@ def parse_email():
 
         # Detect + parse with PROVEN extractors
         if "bizbuysell" in lowered:
-            flat = extract_bizbuysell_html(body) if is_html else extract_bizbuysell_text(body)
+            try:
+                flat = extract_bizbuysell_html(body) if is_html else extract_bizbuysell_text(body)
+            except Exception as e:
+                # Fallback: try text parser if HTML failed
+                try:
+                    flat = extract_bizbuysell_text(BeautifulSoup(body, "html.parser").get_text("
+"))
+                except Exception as e2:
+                    return jsonify({"error": "BizBuySell parse failed", "e_html": str(e), "e_text": str(e2)}), 500
             return jsonify(to_nested("bizbuysell", flat))
 
         if "businessesforsale.com" in lowered or "businesses for sale" in lowered:
@@ -627,3 +636,37 @@ def health():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
+
+@app.route('/api/parse_debug', methods=['POST'])
+def parse_debug():
+    raw = request.get_data(as_text=True) or ''
+    body = ''
+    try:
+        data = request.get_json(force=False, silent=True)
+        if isinstance(data, dict) and data.get('body'):
+            body = data.get('body') or ''
+        else:
+            body = raw
+    except Exception:
+        body = raw
+
+    is_html = ("<html" in body.lower())
+    norm_text = ''
+    try:
+        if is_html:
+            norm_text = BeautifulSoup(body, "html.parser").get_text("\n")
+        else:
+            norm_text = body
+    except Exception as e:
+        norm_text = f"[norm error] {e}"
+
+    # Show quick probes
+    probes = {
+        "contains_bizbuysell": "bizbuysell" in body.lower(),
+        "contains_businessbroker": "businessbroker.net" in body.lower(),
+        "contains_bfs": "businessesforsale.com" in body.lower(),
+        "contains_murphy": "murphybusiness" in body.lower() or "murphy business" in body.lower(),
+        "sample_lines": "\n".join(norm_text.splitlines()[:50])
+    }
+    return jsonify(probes)
