@@ -26,14 +26,10 @@
 
 
 from flask import Flask, request, jsonify
-import re
+from bs4 import BeautifulSoup
 import html
+import re
 from typing import Dict, Tuple
-
-try:
-    from bs4 import BeautifulSoup  # type: ignore
-except Exception:
-    BeautifulSoup = None
 
 
 # ==============================
@@ -87,17 +83,21 @@ def deep_merge(base: Dict, patch: Dict) -> Dict:
 # ==============================
 
 def as_text(raw: str) -> str:
-    """Return visible text. If HTML and bs4 is available, strip tags."""
+    """Return visible text. If HTML is present, strip tags and unescape entities."""
     if raw is None:
         return ""
     text = str(raw)
-    if "<" in text and ">" in text and BeautifulSoup is not None:
+    if "<" in text and ">" in text:
         try:
             soup = BeautifulSoup(text, "html.parser")
             text = soup.get_text("\n")
         except Exception:
+            # Fall back to raw text if bs4 fails
             pass
-    return text.replace("\r", "")
+    # Normalize newlines and unescape HTML entities
+    text = text.replace("\r", "")
+    text = html.unescape(text)
+    return text
 
 
 def normalize_spaces(s: str) -> str:
@@ -251,7 +251,14 @@ def parse_businessbroker(text: str) -> Dict:
     raw_comments = extract_between_markers(text, "Comments")
     comments = clean_comments(raw_comments)
 
-    out = deep_merge(BASE_OUTPUT, {
+    out = deep_merge({
+        "source": "",
+        "contact": {},
+        "address": {},
+        "listing": {},
+        "details": {},
+        "comments": ""
+    }, {
         "source": "businessbroker",
         "contact": {
             "first_name": first,
@@ -274,7 +281,7 @@ def parse_businessbroker(text: str) -> Dict:
         },
         "comments": comments
     })
-    return out
+    return deep_merge(BASE_OUTPUT, out)
 
 
 # ==============================
@@ -311,7 +318,14 @@ def parse_bizbuysell(text: str) -> Dict:
     raw_comments = extract_between_markers(text, "Comments")
     comments = clean_comments(raw_comments)
 
-    out = deep_merge(BASE_OUTPUT, {
+    out = deep_merge({
+        "source": "",
+        "contact": {},
+        "address": {},
+        "listing": {},
+        "details": {},
+        "comments": ""
+    }, {
         "source": "bizbuysell",
         "contact": {
             "first_name": first,
@@ -334,7 +348,7 @@ def parse_bizbuysell(text: str) -> Dict:
         },
         "comments": comments
     })
-    return out
+    return deep_merge(BASE_OUTPUT, out)
 
 
 # ==============================
@@ -377,7 +391,14 @@ def parse_businessesforsale(text: str) -> Dict:
     )
     comments = clean_comments(raw_comments)
 
-    out = deep_merge(BASE_OUTPUT, {
+    out = deep_merge({
+        "source": "",
+        "contact": {},
+        "address": {},
+        "listing": {},
+        "details": {},
+        "comments": ""
+    }, {
         "source": "businessesforsale",
         "contact": {
             "first_name": first,
@@ -399,7 +420,7 @@ def parse_businessesforsale(text: str) -> Dict:
         },
         "comments": comments
     })
-    return out
+    return deep_merge(BASE_OUTPUT, out)
 
 
 # ==============================
@@ -431,7 +452,14 @@ def parse_murphy(text: str) -> Dict:
     )
     comments = clean_comments(raw_comments)
 
-    out = deep_merge(BASE_OUTPUT, {
+    out = deep_merge({
+        "source": "",
+        "contact": {},
+        "address": {},
+        "listing": {},
+        "details": {},
+        "comments": ""
+    }, {
         "source": "murphy",
         "contact": {
             "first_name": first,
@@ -454,7 +482,7 @@ def parse_murphy(text: str) -> Dict:
         },
         "comments": comments
     })
-    return out
+    return deep_merge(BASE_OUTPUT, out)
 
 
 # ==============================
@@ -483,7 +511,14 @@ def parse_unknown(text: str) -> Dict:
     )
     comments = clean_comments(raw_comments)
 
-    out = deep_merge(BASE_OUTPUT, {
+    out = deep_merge({
+        "source": "",
+        "contact": {},
+        "address": {},
+        "listing": {},
+        "details": {},
+        "comments": ""
+    }, {
         "source": "unknown",
         "contact": {
             "first_name": first,
@@ -506,7 +541,7 @@ def parse_unknown(text: str) -> Dict:
         },
         "comments": comments
     })
-    return out
+    return deep_merge(BASE_OUTPUT, out)
 
 
 # ==============================
