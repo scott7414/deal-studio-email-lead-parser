@@ -3,7 +3,11 @@ from bs4 import BeautifulSoup
 import html
 import re
 
-# ✅ Helper: Convert HTML to clean text if needed
+# =========================
+# Helpers
+# =========================
+
+# Convert HTML to clean text if needed
 def html_to_normalized_text(raw: str) -> str:
     lowered = raw.lower()
     is_html = ("<html" in lowered) or ("<body" in lowered) or ("<div" in lowered) or ("<table" in lowered)
@@ -17,7 +21,7 @@ def html_to_normalized_text(raw: str) -> str:
     text = re.sub(r'\n{3,}', '\n\n', text)   # collapse big blank blocks
     return text.strip()
 
-# ✅ Helper: Fallback for BizBuySell comments (HTML mode)
+# Fallback for BizBuySell comments in HTML
 def _fallback_bizbuysell_comments_from_html(raw: str) -> str:
     """If text parse missed comments, grab from HTML <b>Comments</b> → next <span> (or sibling text)."""
     try:
@@ -35,16 +39,14 @@ def _fallback_bizbuysell_comments_from_html(raw: str) -> str:
         pass
     return ''
 
-app = Flask(__name__)
-
-# --- Helper to clean "Not disclosed" values (and variants) ---
+# Clean "Not disclosed" values
 def remove_not_disclosed_fields(data):
     return {
         k: ('' if isinstance(v, str) and 'not disclosed' in v.lower().strip() else v)
         for k, v in data.items()
     }
 
-# --- Phone: normalize to E.164 (+1XXXXXXXXXX) for US/CA ---
+# Phone: normalize to E.164 (+1XXXXXXXXXX) for US/CA
 def normalize_phone_us_e164(phone: str) -> str:
     """
     Normalize US/Canada numbers to E.164 (+1XXXXXXXXXX).
@@ -70,16 +72,21 @@ def normalize_phone_us_e164(phone: str) -> str:
         national = m.group(1)
     return '+1' + national
 
-# --- Clean BusinessBroker headline tails like "BusinessBroker.net"
+# Clean BusinessBroker headline tails like "BusinessBroker.net"
 def _clean_bb_headline(h: str) -> str:
     if not h:
         return ''
     h = re.split(r'\bBusinessBroker(?:\.net)?\b\.?', h, maxsplit=1, flags=re.I)[0]
     return h.strip()
 
-# ============================================================
-# BizBuySell (TEXT)  — used for both HTML (after normalize) and text
-# ============================================================
+# Create the app after helpers (order here is fine)
+app = Flask(__name__)
+
+# =========================
+# Parsers
+# =========================
+
+# BizBuySell (TEXT) — used for both HTML (after normalize) and text
 def extract_bizbuysell_text(text_body: str):
     lines = text_body.replace('\r', '').split('\n')
     lines = [line.strip() for line in lines if line.strip()]
@@ -98,15 +105,20 @@ def extract_bizbuysell_text(text_body: str):
     if pt_match:
         purchase_timeline = pt_match.group(1).strip()
 
-    # Comments until footer-ish lines
+    # Comments until footer-ish lines (robust)
     comments = ''
     cmt_match = re.search(
-        r'Comments:\s*((?:.|\n)*?)(?:\n(?:You can reply directly|We take our lead quality|Thank you,|BizBuySell|Unsubscribe|Email Preferences|Terms of Use|Privacy Notice|Contact Us|$))',
+        r'Comments\s*:?\s*((?:.|\n)*?)(?:\n(?:You can reply directly|We take our lead quality|Thank you,|BizBuySell|Unsubscribe|Email Preferences|Terms of Use|Privacy Notice|Contact Us)\b|\Z)',
         full_text,
         re.IGNORECASE
     )
     if cmt_match:
         comments = cmt_match.group(1).strip()
+    # one-line fallback
+    if not comments:
+        cmt_line = re.search(r'Comments\s*:?\s*(.+)', full_text, re.IGNORECASE)
+        if cmt_line:
+            comments = cmt_line.group(1).strip()
 
     # Phone (E.164)
     phone = normalize_phone_us_e164(get("Contact Phone"))
@@ -138,9 +150,7 @@ def extract_bizbuysell_text(text_body: str):
         "best_time_to_contact": ""
     }
 
-# ============================================================
 # BusinessesForSale (TEXT)
-# ============================================================
 def extract_businessesforsale_text(text_body: str):
     lines = text_body.replace('\r', '').split('\n')
     lines = [line.strip() for line in lines if line.strip()]
@@ -191,9 +201,7 @@ def extract_businessesforsale_text(text_body: str):
         "best_time_to_contact": ""
     }
 
-# ============================================================
-# Murphy Business (TEXT) — used for both HTML (after normalize) and text
-# ============================================================
+# Murphy Business (TEXT)
 def extract_murphy_text(text_body: str):
     text = text_body.replace('\r', '')
     headline = ''  # intentionally blank for Murphy
@@ -233,15 +241,13 @@ def extract_murphy_text(text_body: str):
         "best_time_to_contact": ""
     }
 
-# ============================================================
-# BusinessBroker.net (TEXT) — used for both HTML (after normalize) and text
-# ============================================================
+# BusinessBroker.net (TEXT)
 def extract_businessbroker_text(text_body: str):
     text = text_body.replace('\r', '')
 
     def get_after(label):
-        # Stop at the next Label: even if there's NO space before it (e.g., "... Address:City: ...")
-        # Also stop if a brand token like "BusinessBroker.net" appears as the next thing.
+        # Stop at next Label: even with NO space before it (e.g., "Address:City:")
+        # Also stop if a brand token like "BusinessBroker.net" appears.
         pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=(?:\s*[A-Za-z][A-Za-z/ ]{{1,30}}:)|\n\s*BusinessBroker(?:\.net)?\b|\Z)"
         m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
         return m.group(1).strip() if m else ''
@@ -268,7 +274,7 @@ def extract_businessbroker_text(text_body: str):
     state       = get_after("State")
     best_time   = get_after_multi(["Best Time to Contact", "Best time to contact", "Best Time To Be Contacted"])
 
-    # Comments up to dashed line or end (avoid footer noise)
+    # Comments up to dashed line or end
     comments = ''
     cmt = re.search(r"Comments\s*:\s*(.*?)(?:\n[-_]{3,}|\Z)", text, re.IGNORECASE | re.DOTALL)
     if cmt:
@@ -295,9 +301,9 @@ def extract_businessbroker_text(text_body: str):
         "best_time_to_contact": best_time
     }
 
-# ============================================================
+# =========================
 # Router
-# ============================================================
+# =========================
 @app.route('/api/parse', methods=['POST'])
 def parse_email():
     try:
@@ -305,13 +311,13 @@ def parse_email():
         if not raw_body:
             return jsonify({"error": "No email content provided."}), 400
 
-        lowered = raw_body.lower()
+        text_version = html_to_normalized_text(raw_body)  # normalize once
+        lowered = text_version.lower()                   # branch on normalized text
 
         if "bizbuysell" in lowered:
-            text_version = html_to_normalized_text(raw_body)  # ✅ Always normalize
             parsed = extract_bizbuysell_text(text_version)
 
-            # ✅ Fallback: if comments are empty after text parse, try HTML direct parse
+            # Fallback: if comments are empty after text parse, try HTML direct parse
             if not parsed.get("comments"):
                 html_comments = _fallback_bizbuysell_comments_from_html(raw_body)
                 if html_comments:
@@ -320,25 +326,31 @@ def parse_email():
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "bizbuysell", "parsed_data": parsed})
 
-        elif "businessesforsale.com" in lowered:
-            text_version = html_to_normalized_text(raw_body)
+        if "businessesforsale.com" in lowered:
             parsed = extract_businessesforsale_text(text_version)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "businessesforsale", "parsed_data": parsed})
 
-        elif "murphybusiness.com" in lowered:
-            text_version = html_to_normalized_text(raw_body)
+        if "murphybusiness.com" in lowered or "murphy business" in lowered:
             parsed = extract_murphy_text(text_version)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "murphybusiness", "parsed_data": parsed})
 
-        elif "businessbroker.net" in lowered:
-            text_version = html_to_normalized_text(raw_body)
+        if "businessbroker.net" in lowered:
             parsed = extract_businessbroker_text(text_version)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "businessbroker", "parsed_data": parsed})
 
-        return jsonify({"source": "unknown", "parsed_data": {}})
+        # Unknown – full flat schema so Make mapping is stable
+        empty = {
+            "first_name": "", "last_name": "", "email": "", "phone": "",
+            "ref_id": "", "listing_id": "", "headline": "",
+            "contact_zip": "", "investment_amount": "", "purchase_timeline": "",
+            "comments": "", "listing_url": "", "services_interested_in": "",
+            "heard_about": "", "address": "", "city": "", "state": "",
+            "best_time_to_contact": ""
+        }
+        return jsonify({"source": "unknown", "parsed_data": empty})
 
     except Exception as e:
         return jsonify({"error": f"Server error: {str(e)}"}), 500
