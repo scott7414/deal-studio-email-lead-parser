@@ -3,11 +3,7 @@ from bs4 import BeautifulSoup
 import html
 import re
 
-# =========================
-# Helpers
-# =========================
-
-# Convert HTML to clean text if needed
+# ✅ Helper: Convert HTML to clean text if needed
 def html_to_normalized_text(raw: str) -> str:
     lowered = raw.lower()
     is_html = ("<html" in lowered) or ("<body" in lowered) or ("<div" in lowered) or ("<table" in lowered)
@@ -17,36 +13,21 @@ def html_to_normalized_text(raw: str) -> str:
     soup = BeautifulSoup(html.unescape(raw), "html.parser")
     text = soup.get_text(separator="\n")
     text = text.replace('\r', '')
-    text = re.sub(r'[ \t]+', ' ', text)      # collapse multiple spaces
-    text = re.sub(r'\n{3,}', '\n\n', text)   # collapse big blank blocks
+    text = re.sub(r'[ \t]+', ' ', text)  # collapse multiple spaces
+    text = re.sub(r'\n{3,}', '\n\n', text)  # collapse big blank blocks
     return text.strip()
 
-# Fallback for BizBuySell comments in HTML
-def _fallback_bizbuysell_comments_from_html(raw: str) -> str:
-    """If text parse missed comments, grab from HTML <b>Comments</b> → next <span> (or sibling text)."""
-    try:
-        soup = BeautifulSoup(html.unescape(raw), "html.parser")
-        b = soup.find('b', string=re.compile(r'^Comments$', re.IGNORECASE))
-        if not b:
-            return ''
-        span = b.find_next('span')
-        if span and span.get_text(strip=True):
-            return span.get_text(strip=True)
-        sib = b.next_sibling
-        if isinstance(sib, str) and sib.strip():
-            return sib.strip()
-    except Exception:
-        pass
-    return ''
+app = Flask(__name__)
 
-# Clean "Not disclosed" values
+# --- Helper to clean "Not disclosed" values (and variants) ---
 def remove_not_disclosed_fields(data):
     return {
         k: ('' if isinstance(v, str) and 'not disclosed' in v.lower().strip() else v)
         for k, v in data.items()
     }
 
-# Phone: normalize to E.164 (+1XXXXXXXXXX) for US/CA
+
+# --- Phone: normalize to E.164 (+1XXXXXXXXXX) for US/CA ---
 def normalize_phone_us_e164(phone: str) -> str:
     """
     Normalize US/Canada numbers to E.164 (+1XXXXXXXXXX).
@@ -56,7 +37,6 @@ def normalize_phone_us_e164(phone: str) -> str:
         return ''
     phone_wo_ext = re.sub(r'(?:ext|x|extension)[\s.:#-]*\d+\s*$', '', phone, flags=re.I)
     digits = re.sub(r'\D', '', phone_wo_ext)
-    # common international prefixes for US numbers
     if len(digits) == 13 and digits.startswith('001'):
         digits = digits[3:]
     elif len(digits) == 12 and digits.startswith('01'):
@@ -72,85 +52,141 @@ def normalize_phone_us_e164(phone: str) -> str:
         national = m.group(1)
     return '+1' + national
 
-# Clean BusinessBroker headline tails like "BusinessBroker.net"
-def _clean_bb_headline(h: str) -> str:
-    if not h:
-        return ''
-    h = re.split(r'\bBusinessBroker(?:\.net)?\b\.?', h, maxsplit=1, flags=re.I)[0]
-    return h.strip()
 
-# Create the app after helpers (order here is fine)
-app = Flask(__name__)
+# ✅=========================
+# BizBuySell (HTML)
+# ✅=========================
+def extract_bizbuysell_html(html_body):
+    soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
-# =========================
-# Parsers
-# =========================
+    # Headline
+    headline = ''
+    for b in soup.find_all('b'):
+        text = b.get_text(strip=True)
+        if text.lower() != "from:" and len(text) > 10:
+            headline = text
+            break
 
-# ============================================================
-# BizBuySell (TEXT) — used for both HTML (after normalize) and text
-# ============================================================
-def extract_bizbuysell_text(text_body: str):
-    # Split and keep trimmed, non-empty lines (order preserved)
-    lines = [ln.strip() for ln in text_body.replace('\r', '').split('\n') if ln.strip()]
+    # Contact name
+    name_tag = soup.find('b', string=re.compile('Contact Name'))
+    name = name_tag.find_next('span').get_text(strip=True) if name_tag else ''
+    first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
+
+    # Email
+    email_tag = soup.find('b', string=re.compile('Contact Email'))
+    email = email_tag.find_next('span').get_text(strip=True) if email_tag else ''
+
+    # Phone (E.164)
+    phone_tag = soup.find('b', string=re.compile('Contact Phone'))
+    phone_raw = phone_tag.find_next('span').get_text(strip=True) if phone_tag else ''
+    phone = normalize_phone_us_e164(phone_raw)
+
+    # Ref ID
+    ref_id = ''
+    ref_id_match = soup.find(string=re.compile('Ref ID'))
+    if ref_id_match:
+        m = re.search(r'Ref ID:\s*([A-Za-z0-9\-\_]+)', ref_id_match)
+        if m:
+            ref_id = m.group(1).strip()
+        else:
+            nxt = ref_id_match.find_next(string=True)
+            if nxt:
+                m2 = re.search(r'([A-Za-z0-9\-\_]+)', nxt)
+                if m2:
+                    ref_id = m2.group(1).strip()
+
+    # Listing ID
+    listing_id = ''
+    for span in soup.find_all('span'):
+        if 'Listing ID:' in span.get_text():
+            a = span.find_next('a')
+            if a:
+                listing_id = a.get_text(strip=True)
+                break
+
+    # Optional fields
+    def extract_optional(label):
+        try:
+            tag = soup.find('b', string=re.compile(label))
+            if tag:
+                span = tag.find_next('span')
+                if span:
+                    return span.get_text(strip=True)
+            return ''
+        except:
+            return ''
+
+    contact_zip = extract_optional('Contact Zip')
+    investment_amount = extract_optional('Able to Invest')
+    purchase_timeline = extract_optional('Purchase Within')
+    comments = extract_optional('Comments')
+
+    # Standardized set
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": ref_id,
+        "listing_id": listing_id,
+        "headline": headline,
+        "contact_zip": contact_zip,
+        "investment_amount": investment_amount,
+        "purchase_timeline": purchase_timeline,
+        "comments": comments,
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": "",
+        # New universal fields:
+        "address": "",
+        "city": "",
+        "state": "",
+        "best_time_to_contact": ""
+    }
+
+
+# ✅=========================
+# BizBuySell (TEXT)
+# ✅=========================
+def extract_bizbuysell_text(text_body):
+    lines = text_body.replace('\r', '').split('\n')
+    lines = [line.strip() for line in lines if line.strip()]
     full_text = "\n".join(lines)
 
-    # Robust getter: grabs "Label: value" on the same line,
-    # or (if blank) takes the next non-label line as the value.
-    def get(label: str) -> str:
-        pat = re.compile(rf"^{label}\s*:\s*(.*)$", re.IGNORECASE)
-        for i, line in enumerate(lines):
-            m = pat.match(line)
-            if not m:
-                continue
-            v = (m.group(1) or "").strip()
-            if v:
-                return v  # same-line value
-            # try next line if it doesn't look like another label
-            if i + 1 < len(lines):
-                nxt = lines[i + 1].strip()
-                if not re.match(r"^[A-Za-z][A-Za-z/ \-]{1,40}:\s*$", nxt):
-                    return nxt
-        return ""
+    def get(label):
+        m = re.search(rf"{label}:\s*(.+)", full_text)
+        return m.group(1).strip() if m else ''
 
-    # Name
     name = get("Contact Name")
     first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
     # Purchase Within until Comments
     purchase_timeline = ''
-    pt_match = re.search(r'Purchase Within:\s*(.*?)\s*Comments:', full_text, re.IGNORECASE | re.DOTALL)
+    pt_match = re.search(r'Purchase Within:\s*(.*?)\s*Comments:', full_text, re.DOTALL)
     if pt_match:
         purchase_timeline = pt_match.group(1).strip()
 
-    # Comments until footer-ish lines (robust + one-line fallback)
+    # Comments until typical footer phrasing
     comments = ''
-    cmt_match = re.search(
-        r'Comments\s*:?\s*((?:.|\n)*?)(?:\n(?:You can reply directly|We take our lead quality|Thank you,|BizBuySell|Unsubscribe|Email Preferences|Terms of Use|Privacy Notice|Contact Us)\b|\Z)',
-        full_text,
-        re.IGNORECASE
-    )
+    cmt_match = re.search(r'Comments:\s*((?:.|\n)*?)(?:\n(?:You can reply directly|We take our lead quality|Thank you,|$))', full_text)
     if cmt_match:
         comments = cmt_match.group(1).strip()
-    if not comments:
-        cmt_line = re.search(r'Comments\s*:?\s*(.+)', full_text, re.IGNORECASE)
-        if cmt_line:
-            comments = cmt_line.group(1).strip()
 
-    # Phone (E.164) – supports next-line value via get()
+    # Phone (E.164)
     phone = normalize_phone_us_e164(get("Contact Phone"))
 
-    # Headline (between "regarding your listing:" and the next known label)
+    # Headline
     headline = ''
-    h_match = re.search(r"regarding your listing:\s*([\s\S]*?)\s*(?:Listing ID|Ref ID)\s*:", full_text, re.IGNORECASE)
+    h_match = re.search(r"regarding your listing:\s*(.*?)\s*Listing ID", full_text, re.DOTALL)
     if h_match:
-        headline = h_match.group(1).strip().splitlines()[0].strip()
+        headline = h_match.group(1).strip()
 
     return {
         "first_name": first_name,
         "last_name": last_name,
         "email": get("Contact Email"),
         "phone": phone,
-        "ref_id": (get("Ref ID").split('\n')[0].strip() if get("Ref ID") else ''),
+        "ref_id": get("Ref ID").split('\n')[0].strip() if get("Ref ID") else '',
         "listing_id": get("Listing ID"),
         "headline": headline,
         "contact_zip": get("Contact Zip"),
@@ -166,8 +202,11 @@ def extract_bizbuysell_text(text_body: str):
         "best_time_to_contact": ""
     }
 
+
+# ✅=========================
 # BusinessesForSale (TEXT)
-def extract_businessesforsale_text(text_body: str):
+# ✅=========================
+def extract_businessesforsale_text(text_body):
     lines = text_body.replace('\r', '').split('\n')
     lines = [line.strip() for line in lines if line.strip()]
     full_text = "\n".join(lines)
@@ -217,9 +256,14 @@ def extract_businessesforsale_text(text_body: str):
         "best_time_to_contact": ""
     }
 
-# Murphy Business (TEXT)
-def extract_murphy_text(text_body: str):
-    text = text_body.replace('\r', '')
+
+# ✅=========================
+# Murphy Business (HTML)
+# ✅=========================
+def extract_murphy_html(html_body):
+    soup = BeautifulSoup(html.unescape(html_body), "html.parser")
+    text = soup.get_text(separator="\n")
+
     headline = ''  # intentionally blank for Murphy
 
     def get_after(label):
@@ -257,14 +301,60 @@ def extract_murphy_text(text_body: str):
         "best_time_to_contact": ""
     }
 
-# BusinessBroker.net (TEXT)
-def extract_businessbroker_text(text_body: str):
+
+# ✅=========================
+# Murphy Business (TEXT)
+# ✅=========================
+def extract_murphy_text(text_body):
     text = text_body.replace('\r', '')
+    headline = ''  # intentionally blank
 
     def get_after(label):
-        # Stop at next Label: even with NO space before it (e.g., "Address:City:")
-        # Also stop if a brand token like "BusinessBroker.net" appears.
-        pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=(?:\s*[A-Za-z][A-Za-z/ ]{{1,30}}:)|\n\s*BusinessBroker(?:\.net)?\b|\Z)"
+        pattern = rf"{label}\s*:\s*([^\n\r]+)"
+        m = re.search(pattern, text, re.IGNORECASE)
+        return m.group(1).strip() if m else ''
+
+    name = get_after("Name")
+    first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
+
+    email = get_after("Email")
+    contact_zip = get_after("ZIP/Postal Code")
+    phone = normalize_phone_us_e164(get_after("Phone"))
+    services = get_after("Services Interested In")
+    heard = get_after("How did you hear about us\??")
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": "",
+        "listing_id": "",
+        "headline": headline,
+        "contact_zip": contact_zip,
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": "",
+        "listing_url": "",
+        "services_interested_in": services,
+        "heard_about": heard,
+        "address": "",
+        "city": "",
+        "state": "",
+        "best_time_to_contact": ""
+    }
+
+
+# ✅=========================
+# BusinessBroker.net (HTML)
+# ✅=========================
+def extract_businessbroker_html(html_body):
+    soup = BeautifulSoup(html.unescape(html_body), "html.parser")
+    text = soup.get_text(separator="\n")
+
+    def get_after(label):
+        # Stop at the next Label: even if there's NO space before it (e.g., "... Address:City: ...")
+        pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=(?:\s*[A-Za-z][A-Za-z/ ]{{1,30}}:)|\Z)"
         m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
         return m.group(1).strip() if m else ''
 
@@ -276,7 +366,9 @@ def extract_businessbroker_text(text_body: str):
         return ''
 
     headline    = get_after("Listing Header")
-    headline    = _clean_bb_headline(headline)
+    # Clean odd tails like "... BusinessBroker.net" if present
+    if headline:
+        headline = re.sub(r"\bBusinessBroker\.net\b.*$", "", headline, flags=re.I).strip()
 
     listing_id  = get_after("BusinessBroker.net Listing Number")
     ref_id      = get_after("Your Internal Listing Number")
@@ -317,9 +409,73 @@ def extract_businessbroker_text(text_body: str):
         "best_time_to_contact": best_time
     }
 
-# =========================
+
+# ✅=========================
+# BusinessBroker.net (TEXT)
+# ✅=========================
+def extract_businessbroker_text(text_body):
+    text = text_body.replace('\r', '')
+
+    def get_after(label):
+        pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=(?:\s*[A-Za-z][A-Za-z/ ]{{1,30}}:)|\Z)"
+        m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+        return m.group(1).strip() if m else ''
+
+    def get_after_multi(labels):
+        for lab in labels:
+            v = get_after(lab)
+            if v:
+                return v
+        return ''
+
+    headline    = get_after("Listing Header")
+    if headline:
+        headline = re.sub(r"\bBusinessBroker\.net\b.*$", "", headline, flags=re.I).strip()
+
+    listing_id  = get_after("BusinessBroker.net Listing Number")
+    ref_id      = get_after("Your Internal Listing Number")
+    first_name  = get_after("First Name")
+    last_name   = get_after("Last Name")
+    email       = get_after("Email")
+    phone       = normalize_phone_us_e164(get_after("Phone"))
+    contact_zip = get_after_multi(["Zip", "ZIP", "Zip/Postal Code"])
+    address     = get_after_multi(["Address", "Street Address", "Address Line 1"])
+    city        = get_after("City")
+    state       = get_after("State")
+    best_time   = get_after_multi(["Best Time to Contact", "Best time to contact", "Best Time To Be Contacted"])
+
+    comments = ''
+    cmt = re.search(r"Comments\s*:\s*(.*?)(?:\n[-_]{3,}|\Z)", text, re.IGNORECASE | re.DOTALL)
+    if cmt:
+        comments = cmt.group(1).strip()
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": ref_id,
+        "listing_id": listing_id,
+        "headline": headline,
+        "contact_zip": contact_zip,
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": comments,
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": "",
+        "address": address,
+        "city": city,
+        "state": state,
+        "best_time_to_contact": best_time
+    }
+
+
+
+
+# ✅=========================
 # Router
-# =========================
+# ✅=========================
 @app.route('/api/parse', methods=['POST'])
 def parse_email():
     try:
@@ -327,37 +483,30 @@ def parse_email():
         if not raw_body:
             return jsonify({"error": "No email content provided."}), 400
 
-        text_version = html_to_normalized_text(raw_body)  # normalize once
-        lowered = text_version.lower()                   # branch on normalized text
+        text_body = html_to_normalized_text(raw_body)  # <<< normalize once
+        lowered = text_body.lower()
 
         if "bizbuysell" in lowered:
-            parsed = extract_bizbuysell_text(text_version)
-
-            # Fallback: if comments are empty after text parse, try HTML direct parse
-            if not parsed.get("comments"):
-                html_comments = _fallback_bizbuysell_comments_from_html(raw_body)
-                if html_comments:
-                    parsed["comments"] = html_comments
-
+            parsed = extract_bizbuysell_text(text_body)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "bizbuysell", "parsed_data": parsed})
 
         if "businessesforsale.com" in lowered:
-            parsed = extract_businessesforsale_text(text_version)
+            parsed = extract_businessesforsale_text(text_body)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "businessesforsale", "parsed_data": parsed})
 
         if "murphybusiness.com" in lowered or "murphy business" in lowered:
-            parsed = extract_murphy_text(text_version)
+            parsed = extract_murphy_text(text_body)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "murphybusiness", "parsed_data": parsed})
 
         if "businessbroker.net" in lowered:
-            parsed = extract_businessbroker_text(text_version)
+            parsed = extract_businessbroker_text(text_body)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "businessbroker", "parsed_data": parsed})
 
-        # Unknown – full flat schema so Make mapping is stable
+        # Unknown – return full flat schema for Make stability
         empty = {
             "first_name": "", "last_name": "", "email": "", "phone": "",
             "ref_id": "", "listing_id": "", "headline": "",
@@ -370,6 +519,7 @@ def parse_email():
 
     except Exception as e:
         return jsonify({"error": f"Server error: {str(e)}"}), 500
+
 
 
 if __name__ == "__main__":
