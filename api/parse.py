@@ -17,6 +17,24 @@ def html_to_normalized_text(raw: str) -> str:
     text = re.sub(r'\n{3,}', '\n\n', text)   # collapse big blank blocks
     return text.strip()
 
+# ✅ Helper: Fallback for BizBuySell comments (HTML mode)
+def _fallback_bizbuysell_comments_from_html(raw: str) -> str:
+    """If text parse missed comments, grab from HTML <b>Comments</b> → next <span> (or sibling text)."""
+    try:
+        soup = BeautifulSoup(html.unescape(raw), "html.parser")
+        b = soup.find('b', string=re.compile(r'^Comments$', re.IGNORECASE))
+        if not b:
+            return ''
+        span = b.find_next('span')
+        if span and span.get_text(strip=True):
+            return span.get_text(strip=True)
+        sib = b.next_sibling
+        if isinstance(sib, str) and sib.strip():
+            return sib.strip()
+    except Exception:
+        pass
+    return ''
+
 app = Flask(__name__)
 
 # --- Helper to clean "Not disclosed" values (and variants) ---
@@ -287,44 +305,43 @@ def parse_email():
         if not raw_body:
             return jsonify({"error": "No email content provided."}), 400
 
-        text_body = html_to_normalized_text(raw_body)  # normalize once
-        lowered = text_body.lower()
+        lowered = raw_body.lower()
 
         if "bizbuysell" in lowered:
-            parsed = extract_bizbuysell_text(text_body)
+            text_version = html_to_normalized_text(raw_body)  # ✅ Always normalize
+            parsed = extract_bizbuysell_text(text_version)
+
+            # ✅ Fallback: if comments are empty after text parse, try HTML direct parse
+            if not parsed.get("comments"):
+                html_comments = _fallback_bizbuysell_comments_from_html(raw_body)
+                if html_comments:
+                    parsed["comments"] = html_comments
+
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "bizbuysell", "parsed_data": parsed})
 
-        if "businessesforsale.com" in lowered:
-            parsed = extract_businessesforsale_text(text_body)
+        elif "businessesforsale.com" in lowered:
+            text_version = html_to_normalized_text(raw_body)
+            parsed = extract_businessesforsale_text(text_version)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "businessesforsale", "parsed_data": parsed})
 
-        if "murphybusiness.com" in lowered or "murphy business" in lowered:
-            parsed = extract_murphy_text(text_body)
+        elif "murphybusiness.com" in lowered:
+            text_version = html_to_normalized_text(raw_body)
+            parsed = extract_murphy_text(text_version)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "murphybusiness", "parsed_data": parsed})
 
-        if "businessbroker.net" in lowered:
-            parsed = extract_businessbroker_text(text_body)
+        elif "businessbroker.net" in lowered:
+            text_version = html_to_normalized_text(raw_body)
+            parsed = extract_businessbroker_text(text_version)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "businessbroker", "parsed_data": parsed})
 
-        # Unknown – return full flat schema for Make stability
-        empty = {
-            "first_name": "", "last_name": "", "email": "", "phone": "",
-            "ref_id": "", "listing_id": "", "headline": "",
-            "contact_zip": "", "investment_amount": "", "purchase_timeline": "",
-            "comments": "", "listing_url": "", "services_interested_in": "",
-            "heard_about": "", "address": "", "city": "", "state": "",
-            "best_time_to_contact": ""
-        }
-        return jsonify({"source": "unknown", "parsed_data": empty})
+        return jsonify({"source": "unknown", "parsed_data": {}})
 
     except Exception as e:
-        # If you need quick debugging during dev, uncomment next line:
-        # return jsonify({"error": f"Server error: {str(e)}"}), 500
-        return jsonify({"error": "Server error"}), 500
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
