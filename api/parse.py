@@ -178,6 +178,14 @@ def extract_bizbuysell_html(html_body):
         "listing_id": listing_id,
         "headline": headline,
         "contact_zip": contact_zip,
+        \"address\": address,
+        \"city\": city,
+        \"state\": state,
+        \"country\": country,
+        \"address\": address,
+        \"city\": city,
+        \"state\": state,
+        \"country\": country,
         "investment_amount": investment_amount,
         "purchase_timeline": purchase_timeline,
         "comments": comments,
@@ -232,6 +240,14 @@ def extract_bizbuysell_text(text_body):
         "listing_id": get("Listing ID"),
         "headline": headline,
         "contact_zip": get("Contact Zip"),
+        \"address\": address,
+        \"city\": city,
+        \"state\": state,
+        \"country\": country,
+        \"address\": address,
+        \"city\": city,
+        \"state\": state,
+        \"country\": country,
         "investment_amount": get("Able to Invest"),
         "purchase_timeline": purchase_timeline,
         "comments": comments,
@@ -282,6 +298,10 @@ def extract_businessesforsale_text(text_body):
         "listing_id": "",
         "headline": headline,
         "contact_zip": "",
+        \"address\": address,
+        \"city\": city,
+        \"state\": state,
+        \"country\": country,
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": comments,
@@ -323,6 +343,10 @@ def extract_murphy_html(html_body):
         "listing_id": "",
         "headline": headline,
         "contact_zip": contact_zip,
+        \"address\": address,
+        \"city\": city,
+        \"state\": state,
+        \"country\": country,
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": "",
@@ -362,6 +386,10 @@ def extract_murphy_text(text_body):
         "listing_id": "",
         "headline": headline,
         "contact_zip": contact_zip,
+        \"address\": address,
+        \"city\": city,
+        \"state\": state,
+        \"country\": country,
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": "",
@@ -397,6 +425,10 @@ def extract_businessbroker_html(html_body):
     email       = get_after("Email")
     phone       = normalize_phone_us_e164(get_after("Phone"))
     contact_zip = get_after_multi(["Zip", "ZIP", "Zip/Postal Code"])
+    city = get_after_multi([\"City\"]) or ''
+    state = get_after_multi([\"State\"]) or ''
+    country = get_after_multi([\"Country\"]) or ''
+    address = get_after_multi([\"Address\", \"Address 1\", \"Address Line 1\"]) or ''
 
     # Comments block: after "Comments:" up to dashed line or end
     comments = ''
@@ -414,6 +446,10 @@ def extract_businessbroker_html(html_body):
         "listing_id": listing_id,
         "headline": headline,
         "contact_zip": contact_zip,
+        \"address\": address,
+        \"city\": city,
+        \"state\": state,
+        \"country\": country,
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": comments,
@@ -448,6 +484,10 @@ def extract_businessbroker_text(text_body):
     email       = get_after("Email")
     phone       = normalize_phone_us_e164(get_after("Phone"))
     contact_zip = get_after_multi(["Zip", "ZIP", "Zip/Postal Code"])
+    city = get_after_multi([\"City\"]) or ''
+    state = get_after_multi([\"State\"]) or ''
+    country = get_after_multi([\"Country\"]) or ''
+    address = get_after_multi([\"Address\", \"Address 1\", \"Address Line 1\"]) or ''
 
     # Comments block
     comments = ''
@@ -465,6 +505,10 @@ def extract_businessbroker_text(text_body):
         "listing_id": listing_id,
         "headline": headline,
         "contact_zip": contact_zip,
+        \"address\": address,
+        \"city\": city,
+        \"state\": state,
+        \"country\": country,
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": comments,
