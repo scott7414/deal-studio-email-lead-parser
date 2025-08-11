@@ -432,6 +432,108 @@ def extract_businessbroker_text(text_body):
         "heard_about": ""
     }
 
+
+# ==============================
+# ✅ FCBB (HTML) — First Choice Business Brokers
+# ==============================
+def extract_fcbb_html(html_body):
+    soup = BeautifulSoup(html.unescape(html_body), "html.parser")
+
+    # Find the main info block (div with the <p> lines)
+    info_div = None
+    for div in soup.find_all('div'):
+        txt = div.get_text(separator="\n", strip=True)
+        if not txt:
+            continue
+        # Heuristic: block that contains tel: and mailto: in <a> tags, or looks like 4 short lines
+        has_tel = div.find('a', href=lambda h: h and h.lower().startswith('tel:'))
+        has_mail = div.find('a', href=lambda h: h and h.lower().startswith('mailto:'))
+        if has_tel and has_mail:
+            info_div = div
+            break
+        # fallback: a div with ~3-5 <p> lines
+        ps = div.find_all('p')
+        if 3 <= len(ps) <= 6:
+            info_div = div
+            # don't break; prefer the tel/mailto block if we find it later
+    if not info_div:
+        # As fallback, parse whole page text
+        text = soup.get_text("\n")
+        lines = [l.strip() for l in text.replace('\r','').split('\n') if l.strip()]
+        # try a minimal pattern: name, "<ref> <headline>", phone, email
+        name, ref_id, headline, phone, email = "", "", "", "", ""
+        # phone
+        for l in lines:
+            if '(' in l and ')' in l and any(ch.isdigit() for ch in l):
+                phone = l.strip()
+                break
+        # email
+        for l in lines:
+            if '@' in l and '.' in l and ' ' not in l:
+                email = l.strip()
+                break
+        # ref/headline: first line with token-then-rest like "101-24127 Something..."
+        for l in lines:
+            m = re.match(r'^\s*([A-Za-z0-9\-]+)\s+(.*)$', l)
+            if m and any(c.isalpha() for c in m.group(2)):
+                ref_id = m.group(1).strip()
+                headline = m.group(2).strip()
+                break
+        # name: first non-empty that isn't phone/email/ref/headline
+        for l in lines:
+            if l in (phone, email, f"{ref_id} {headline}"):
+                continue
+            if 1 <= len(l.split()) <= 3 and not re.search(r'\d', l):
+                name = l.strip()
+                break
+    else:
+        # Parse the <p> lines inside the info_div
+        ps = info_div.find_all('p')
+        p_texts = [p.get_text(strip=True) for p in ps if p.get_text(strip=True)]
+        # Expect order: name, "<ref> <headline>", phone, email
+        name = p_texts[0] if len(p_texts) >= 1 else ""
+        line2 = p_texts[1] if len(p_texts) >= 2 else ""
+        # phone
+        a_tel = info_div.find('a', href=lambda h: h and h.lower().startswith('tel:'))
+        phone = a_tel.get_text(strip=True) if a_tel else (p_texts[2] if len(p_texts) >= 3 else "")
+        # email
+        a_mail = info_div.find('a', href=lambda h: h and h.lower().startswith('mailto:'))
+        email = a_mail.get_text(strip=True) if a_mail else (p_texts[3] if len(p_texts) >= 4 else "")
+        # split ref/headline
+        ref_id, headline = "", ""
+        m = re.match(r'^\s*([A-Za-z0-9\-]+)\s+(.*)$', line2)
+        if m:
+            ref_id = m.group(1).strip()
+            headline = m.group(2).strip()
+
+    # Split name into first/last (if more than one word, use first token as first_name, rest as last_name)
+    first_name, last_name = "", ""
+    if name:
+        parts = name.strip().split()
+        if len(parts) >= 2:
+            first_name, last_name = parts[0], " ".join(parts[1:])
+        else:
+            first_name = parts[0]
+
+    # Normalize phone
+    phone = normalize_phone_us_e164(phone)
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email.strip(),
+        "phone": phone,
+        "ref_id": ref_id,
+        "listing_id": "",
+        "headline": headline,
+        "contact_zip": "",
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": "",
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": ""
+    }
 # ==============================
 # ✅ Mapper to unified nested schema
 # ==============================
