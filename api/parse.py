@@ -338,9 +338,10 @@ def extract_businessbroker_html(html_body):
     text = soup.get_text(separator="\n")
 
     def get_after(label):
-        pattern = rf"{re.escape(label)}\s*:\s*([^\n\r]+)"
-        m = re.search(pattern, text, re.IGNORECASE)
-        return m.group(1).strip() if m else ''
+    # Match after the label until next label-like thing or end
+    pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=\s+[A-Z][A-Za-z ]{{1,30}}:|\Z)"
+    m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+    return m.group(1).strip() if m else ''
 
     def get_after_multi(labels):
         for lab in labels:
@@ -396,9 +397,10 @@ def extract_businessbroker_text(text_body):
     text = text_body.replace('\r', '')
 
     def get_after(label):
-        pattern = rf"{re.escape(label)}\s*:\s*([^\n\r]+)"
-        m = re.search(pattern, text, re.IGNORECASE)
-        return m.group(1).strip() if m else ''
+    # Match after the label until next label-like thing or end
+    pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=\s+[A-Z][A-Za-z ]{{1,30}}:|\Z)"
+    m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+    return m.group(1).strip() if m else ''
 
     def get_after_multi(labels):
         for lab in labels:
