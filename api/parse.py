@@ -104,70 +104,50 @@ def clean_comments_block(raw_text: str) -> str:
 # ==============================
 # ✅ BizBuySell (HTML)
 # ==============================
+
 def extract_bizbuysell_html(html_body):
+    # Parse HTML to plain text lines, then use regex like the TEXT parser
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
+    text = soup.get_text("\n")
+    lines = text.replace('\r', '').split('\n')
+    lines = [line.strip() for line in lines if line.strip()]
+    full_text = "\n".join(lines)
 
-    # Headline
+    def get(label):
+        m = re.search(rf"{label}\s*:\s*(.+)", full_text, flags=re.IGNORECASE)
+        return m.group(1).strip() if m else ''
+
+    # Headline: try a friendly pattern
     headline = ''
-    for b in soup.find_all('b'):
-        text = b.get_text(strip=True)
-        if text.lower() != "from:" and len(text) > 10:
-            headline = text
-            break
-
-    # Contact name
-    name_tag = soup.find('b', string=re.compile('Contact Name'))
-    name = name_tag.find_next('span').get_text(strip=True) if name_tag else ''
-    first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
-
-    # Email
-    email_tag = soup.find('b', string=re.compile('Contact Email'))
-    email = email_tag.find_next('span').get_text(strip=True) if email_tag else ''
-
-    # Phone (E.164)
-    phone_tag = soup.find('b', string=re.compile('Contact Phone'))
-    phone_raw = phone_tag.find_next('span').get_text(strip=True) if phone_tag else ''
-    phone = normalize_phone_us_e164(phone_raw)
-
-    # Ref ID
-    ref_id = ''
-    ref_id_match = soup.find(string=re.compile('Ref ID'))
-    if ref_id_match:
-        m = re.search(r'Ref ID:\s*([A-Za-z0-9\-\_]+)', ref_id_match)
-        if m:
-            ref_id = m.group(1).strip()
-        else:
-            nxt = ref_id_match.find_next(string=True)
-            if nxt:
-                m2 = re.search(r'([A-Za-z0-9\-\_]+)', nxt)
-                if m2:
-                    ref_id = m2.group(1).strip()
-
-    # Listing ID
-    listing_id = ''
-    for span in soup.find_all('span'):
-        if 'Listing ID:' in span.get_text():
-            a = span.find_next('a')
-            if a:
-                listing_id = a.get_text(strip=True)
+    h_match = re.search(r"regarding your listing:\s*(.*?)\s*(?:Listing ID|Ref ID|Contact Name|$)", full_text, re.IGNORECASE | re.DOTALL)
+    if h_match:
+        headline = h_match.group(1).strip()
+    if not headline:
+        # Sometimes first bold text becomes the headline; fallback to first long line
+        for line in lines:
+            if len(line) > 10 and not re.match(r"^(from:|contact name:|contact email:|contact phone:)", line, re.I):
+                headline = line
                 break
 
-    # Optional fields
-    def extract_optional(label):
-        try:
-            tag = soup.find('b', string=re.compile(label))
-            if tag:
-                span = tag.find_next('span')
-                if span:
-                    return span.get_text(strip=True)
-            return ''
-        except:
-            return ''
+    name = get("Contact Name")
+    first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
-    contact_zip = extract_optional('Contact Zip')
-    investment_amount = extract_optional('Able to Invest')
-    purchase_timeline = extract_optional('Purchase Within')
-    comments = extract_optional('Comments')
+    email = get("Contact Email")
+    phone = normalize_phone_us_e164(get("Contact Phone"))
+    ref_id = get("Ref ID").split('\n')[0].strip() if get("Ref ID") else ''
+    listing_id = get("Listing ID")
+
+    contact_zip = get("Contact Zip") or get("Zip")
+
+    # Optional fields
+    investment_amount = get("Able to Invest") or get("Investment Amount")
+    purchase_timeline = get("Purchase Within")
+
+    # Comments until typical footer phrasing
+    comments = ''
+    cmt_match = re.search(r'Comments\s*:\s*((?:.|\n)*?)(?:\n(?:You can reply directly|We take our lead quality|Thank you,|[-_]{3,}|$))', full_text, re.IGNORECASE)
+    if cmt_match:
+        comments = cmt_match.group(1).strip()
     comments = clean_comments_block(comments)
 
     return {
@@ -179,14 +159,6 @@ def extract_bizbuysell_html(html_body):
         "listing_id": listing_id,
         "headline": headline,
         "contact_zip": contact_zip,
-        \"address\": address,
-        \"city\": city,
-        \"state\": state,
-        \"country\": country,
-        \"address\": address,
-        \"city\": city,
-        \"state\": state,
-        \"country\": country,
         "investment_amount": investment_amount,
         "purchase_timeline": purchase_timeline,
         "comments": comments,
@@ -195,9 +167,6 @@ def extract_bizbuysell_html(html_body):
         "heard_about": ""
     }
 
-# ==============================
-# ✅ BizBuySell (TEXT)
-# ==============================
 def extract_bizbuysell_text(text_body):
     lines = text_body.replace('\r', '').split('\n')
     lines = [line.strip() for line in lines if line.strip()]
