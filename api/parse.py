@@ -325,6 +325,94 @@ def extract_murphy_text(text_body):
 
 
 # ✅=========================
+# BusinessBroker.net (HTML)
+# ✅=========================
+def extract_businessbroker_html(html_body):
+    soup = BeautifulSoup(html.unescape(html_body), "html.parser")
+    text = soup.get_text(separator="\n")
+
+    def get_after(label):
+        m = re.search(rf"{label}\s*:\s*([^\n\r]+)", text, re.IGNORECASE)
+        return m.group(1).strip() if m else ''
+
+    headline    = get_after("Listing Header")
+    listing_id  = get_after("BusinessBroker\.net Listing Number")
+    ref_id      = get_after("Your Internal Listing Number")
+    first_name  = get_after("First Name")
+    last_name   = get_after("Last Name")
+    email       = get_after("Email")
+    phone       = normalize_phone_us_e164(get_after("Phone"))
+    contact_zip = get_after(r"Zip|ZIP|Zip/Postal Code")
+
+    # Comments: capture anything after "Comments:" up to a dashed line or end
+    comments = ''
+    cmt = re.search(r"Comments\s*:\s*(.*?)(?:\n[-_]{3,}|\Z)", text, re.IGNORECASE | re.DOTALL)
+    if cmt:
+        comments = cmt.group(1).strip()
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": ref_id,
+        "listing_id": listing_id,
+        "headline": headline,
+        "contact_zip": contact_zip,
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": comments,
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": ""
+    }
+
+
+# ✅=========================
+# BusinessBroker.net (TEXT)
+# ✅=========================
+def extract_businessbroker_text(text_body):
+    text = text_body.replace('\r', '')
+
+    def get_after(label):
+        m = re.search(rf"{label}\s*:\s*([^\n\r]+)", text, re.IGNORECASE)
+        return m.group(1).strip() if m else ''
+
+    headline    = get_after("Listing Header")
+    listing_id  = get_after("BusinessBroker\.net Listing Number")
+    ref_id      = get_after("Your Internal Listing Number")
+    first_name  = get_after("First Name")
+    last_name   = get_after("Last Name")
+    email       = get_after("Email")
+    phone       = normalize_phone_us_e164(get_after("Phone"))
+    contact_zip = get_after(r"Zip|ZIP|Zip/Postal Code")
+
+    # Comments block
+    comments = ''
+    cmt = re.search(r"Comments\s*:\s*(.*?)(?:\n[-_]{3,}|\Z)", text, re.IGNORECASE | re.DOTALL)
+    if cmt:
+        comments = cmt.group(1).strip()
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": ref_id,
+        "listing_id": listing_id,
+        "headline": headline,
+        "contact_zip": contact_zip,
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": comments,
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": ""
+    }
+
+
+
+# ✅=========================
 # Router
 # ✅=========================
 @app.route('/api/parse', methods=['POST'])
@@ -351,6 +439,12 @@ def parse_email():
             parsed = extract_murphy_html(html_body) if is_html else extract_murphy_text(html_body)
             parsed = remove_not_disclosed_fields(parsed)
             return jsonify({"source": "murphybusiness", "parsed_data": parsed})
+
+        if "businessbroker.net" in lowered:
+            parsed = extract_businessbroker_html(html_body) if is_html else extract_businessbroker_text(html_body)
+            parsed = remove_not_disclosed_fields(parsed)
+            return jsonify({"source": "businessbroker", "parsed_data": parsed})
+
 
         # Unknown
         empty = {
