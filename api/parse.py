@@ -338,10 +338,10 @@ def extract_businessbroker_html(html_body):
     text = soup.get_text(separator="\n")
 
     def get_after(label):
-    # Match after the label until next label-like thing or end
-    pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=\s+[A-Z][A-Za-z ]{{1,30}}:|\Z)"
-    m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-    return m.group(1).strip() if m else ''
+        # Grab value after label until the next Label: (inline or next line) or end of text
+        pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=(?:\s+[A-Z][A-Za-z/ ]{{1,30}}:)|\Z)"
+        m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+        return m.group(1).strip() if m else ''
 
     def get_after_multi(labels):
         for lab in labels:
@@ -363,6 +363,7 @@ def extract_businessbroker_html(html_body):
     state       = get_after("State")
     best_time   = get_after_multi(["Best Time to Contact", "Best time to contact", "Best Time To Be Contacted"])
 
+    # Comments: capture anything after "Comments:" up to dashed line or end
     comments = ''
     cmt = re.search(r"Comments\s*:\s*(.*?)(?:\n[-_]{3,}|\Z)", text, re.IGNORECASE | re.DOTALL)
     if cmt:
@@ -397,10 +398,9 @@ def extract_businessbroker_text(text_body):
     text = text_body.replace('\r', '')
 
     def get_after(label):
-    # Match after the label until next label-like thing or end
-    pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=\s+[A-Z][A-Za-z ]{{1,30}}:|\Z)"
-    m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-    return m.group(1).strip() if m else ''
+        pattern = rf"{re.escape(label)}\s*:\s*(.*?)(?=(?:\s+[A-Z][A-Za-z/ ]{{1,30}}:)|\Z)"
+        m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+        return m.group(1).strip() if m else ''
 
     def get_after_multi(labels):
         for lab in labels:
@@ -447,6 +447,7 @@ def extract_businessbroker_text(text_body):
         "state": state,
         "best_time_to_contact": best_time
     }
+
 
 
 # ✅=========================
