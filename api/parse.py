@@ -1,5 +1,5 @@
 # =============================================
-# Lead Parser API — Revert-Safe (No HTML->Text conversion; no 500s)
+# Lead Parser API — Revert-Safe (No brittle conversions; no 500s)
 # =============================================
 
 from flask import Flask, request, jsonify
@@ -432,96 +432,61 @@ def extract_businessbroker_text(text_body):
         "heard_about": ""
     }
 
-
 # ==============================
 # ✅ FCBB (HTML) — First Choice Business Brokers
 # ==============================
 def extract_fcbb_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
+    text = soup.get_text("\n")
+    lines = [l.strip() for l in text.replace("\r", "").split("\n") if l.strip()]
 
-    # Find the main info block (div with the <p> lines)
-    info_div = None
-    for div in soup.find_all('div'):
-        txt = div.get_text(separator="\n", strip=True)
-        if not txt:
-            continue
-        # Heuristic: block that contains tel: and mailto: in <a> tags, or looks like 4 short lines
-        has_tel = div.find('a', href=lambda h: h and h.lower().startswith('tel:'))
-        has_mail = div.find('a', href=lambda h: h and h.lower().startswith('mailto:'))
-        if has_tel and has_mail:
-            info_div = div
-            break
-        # fallback: a div with ~3-5 <p> lines
-        ps = div.find_all('p')
-        if 3 <= len(ps) <= 6:
-            info_div = div
-            # don't break; prefer the tel/mailto block if we find it later
-    if not info_div:
-        # As fallback, parse whole page text
-        text = soup.get_text("\n")
-        lines = [l.strip() for l in text.replace('\r','').split('\n') if l.strip()]
-        # try a minimal pattern: name, "<ref> <headline>", phone, email
-        name, ref_id, headline, phone, email = "", "", "", "", ""
-        # phone
-        for l in lines:
-            if '(' in l and ')' in l and any(ch.isdigit() for ch in l):
-                phone = l.strip()
-                break
-        # email
-        for l in lines:
-            if '@' in l and '.' in l and ' ' not in l:
-                email = l.strip()
-                break
-        # ref/headline: first line with token-then-rest like "101-24127 Something..."
-        for l in lines:
-            m = re.match(r'^\s*([A-Za-z0-9\-]+)\s+(.*)$', l)
-            if m and any(c.isalpha() for c in m.group(2)):
-                ref_id = m.group(1).strip()
-                headline = m.group(2).strip()
-                break
-        # name: first non-empty that isn't phone/email/ref/headline
-        for l in lines:
-            if l in (phone, email, f"{ref_id} {headline}"):
-                continue
-            if 1 <= len(l.split()) <= 3 and not re.search(r'\d', l):
-                name = l.strip()
-                break
-    else:
-        # Parse the <p> lines inside the info_div
-        ps = info_div.find_all('p')
-        p_texts = [p.get_text(strip=True) for p in ps if p.get_text(strip=True)]
-        # Expect order: name, "<ref> <headline>", phone, email
-        name = p_texts[0] if len(p_texts) >= 1 else ""
-        line2 = p_texts[1] if len(p_texts) >= 2 else ""
-        # phone
-        a_tel = info_div.find('a', href=lambda h: h and h.lower().startswith('tel:'))
-        phone = a_tel.get_text(strip=True) if a_tel else (p_texts[2] if len(p_texts) >= 3 else "")
-        # email
-        a_mail = info_div.find('a', href=lambda h: h and h.lower().startswith('mailto:'))
-        email = a_mail.get_text(strip=True) if a_mail else (p_texts[3] if len(p_texts) >= 4 else "")
-        # split ref/headline
-        ref_id, headline = "", ""
-        m = re.match(r'^\s*([A-Za-z0-9\-]+)\s+(.*)$', line2)
-        if m:
+    first_name, last_name, ref_id, headline, phone, email = "", "", "", "", "", ""
+
+    # Find the "<ref> <headline>" line, e.g., "101-24127 Childcare Learning ..."
+    ref_idx = -1
+    ref_pat = re.compile(r'^\s*([A-Za-z0-9\-]{3,})\s+(.+)$')
+    for i, l in enumerate(lines):
+        m = ref_pat.match(l)
+        if m and any(c.isalpha() for c in m.group(2)):
             ref_id = m.group(1).strip()
             headline = m.group(2).strip()
+            ref_idx = i
+            break
 
-    # Split name into first/last (if more than one word, use first token as first_name, rest as last_name)
-    first_name, last_name = "", ""
-    if name:
-        parts = name.strip().split()
-        if len(parts) >= 2:
-            first_name, last_name = parts[0], " ".join(parts[1:])
-        else:
-            first_name = parts[0]
+    # Name likely just above ref line and contains no digits
+    def looks_like_phone(s):
+        return bool(re.search(r'\(?\d{3}\)?[^\d]?\d{3}[^\d]?\d{4}', s))
+    def looks_like_email(s):
+        return bool(re.search(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}', s))
 
-    # Normalize phone
+    if ref_idx > 0:
+        name_candidate = lines[ref_idx - 1]
+        if not looks_like_phone(name_candidate) and not looks_like_email(name_candidate) and not re.search(r'\d', name_candidate):
+            parts = name_candidate.split()
+            if parts:
+                first_name = parts[0]
+                if len(parts) > 1:
+                    last_name = " ".join(parts[1:])
+
+    # Phone and email: search after ref line first, then anywhere
+    for seq in (lines[ref_idx+1:] if ref_idx >= 0 else lines, lines):
+        if not phone:
+            m = re.search(r'(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}', "\n".join(seq))
+            if m:
+                phone = m.group(0).strip()
+        if not email:
+            m = re.search(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}', "\n".join(seq))
+            if m:
+                email = m.group(0).strip()
+        if phone and email:
+            break
+
     phone = normalize_phone_us_e164(phone)
 
     return {
         "first_name": first_name,
         "last_name": last_name,
-        "email": email.strip(),
+        "email": email,
         "phone": phone,
         "ref_id": ref_id,
         "listing_id": "",
@@ -534,6 +499,7 @@ def extract_fcbb_html(html_body):
         "services_interested_in": "",
         "heard_about": ""
     }
+
 # ==============================
 # ✅ Mapper to unified nested schema
 # ==============================
@@ -595,6 +561,14 @@ def parse_email():
     is_html = ("<html" in lowered) or ("<body" in lowered) or ("<div" in lowered)
 
     try:
+        # FCBB detection (logo/domain/footer text)
+        if "fcbb.com" in lowered or "oms.fcbb.com" in lowered or "first choice business brokers" in lowered:
+            try:
+                flat = extract_fcbb_html(body)  # FCBB sample is HTML
+                return jsonify(to_nested("fcbb", flat))
+            except Exception as e:
+                return jsonify(to_nested("fcbb", {}, f"parse_failed: {e}"))
+
         if "bizbuysell" in lowered:
             try:
                 flat = extract_bizbuysell_html(body) if is_html else extract_bizbuysell_text(body)
@@ -607,12 +581,14 @@ def parse_email():
                     return jsonify(to_nested("bizbuysell", flat, f"fallback_text_ok: {e}"))
                 except Exception as e2:
                     return jsonify(to_nested("bizbuysell", {}, f"parse_failed: {e}; fallback_failed: {e2}"))
+
         if "businessesforsale.com" in lowered or "businesses for sale" in lowered:
             try:
                 flat = extract_businessesforsale_text(body if not is_html else BeautifulSoup(body, "html.parser").get_text("\n"))
                 return jsonify(to_nested("businessesforsale", flat))
             except Exception as e:
                 return jsonify(to_nested("businessesforsale", {}, f"parse_failed: {e}"))
+
         if "murphybusiness.com" in lowered or "murphy business" in lowered:
             try:
                 flat = extract_murphy_html(body) if is_html else extract_murphy_text(body)
@@ -624,6 +600,7 @@ def parse_email():
                     return jsonify(to_nested("murphybusiness", flat, f"fallback_text_ok: {e}"))
                 except Exception as e2:
                     return jsonify(to_nested("murphybusiness", {}, f"parse_failed: {e}; fallback_failed: {e2}"))
+
         if "businessbroker.net" in lowered:
             try:
                 flat = extract_businessbroker_html(body) if is_html else extract_businessbroker_text(body)
@@ -635,6 +612,7 @@ def parse_email():
                     return jsonify(to_nested("businessbroker", flat, f"fallback_text_ok: {e}"))
                 except Exception as e2:
                     return jsonify(to_nested("businessbroker", {}, f"parse_failed: {e}; fallback_failed: {e2}"))
+
         # Unknown
         return jsonify(to_nested("unknown", {}))
     except Exception as outer:
