@@ -87,21 +87,38 @@ def normalize_phone(phone: str) -> str:
     m = re.match(r"^\+?1?(\d{10})$", digits)
     if m:
         d = m.group(1)
-        return f"({{d[0:3]}}) {{d[3:6]}}-{{d[6:]}}"
+        return f"({d[0:3]}) {d[3:6]}-{d[6:]}"
     return phone.strip()
 
 def kv_get_block(text: str, label: str) -> str:
     """
-    Generic 'Label: value' extractor across lines.
-    - Case-insensitive
-    - Allows leading spaces before the label
-    - Accepts unicode colon '：' as well as ':'
+    Extract a value for a given label in flexible formats:
+      - "Label: value"
+      - "Label:\nvalue"
+    Tolerates leading spaces and unicode colon "：". Case-insensitive.
+    Returns the first non-empty match.
     """
+    if not text or not label:
+        return ""
     # Normalize unicode colon to ASCII
     norm = text.replace("：", ":")
-    # Optional leading spaces, then label, then colon
-    m = re.search(rf"(?im)^\s*{re.escape(label)}\s*:\s*(.+)$", norm)
-    return m.group(1).strip() if m else ""
+    # Split lines for next-line capture
+    lines = norm.split("\n")
+    pat = re.compile(rf"^\s*{re.escape(label)}\s*:\s*(.*)$", re.IGNORECASE)
+    for i, line in enumerate(lines):
+        m = pat.match(line)
+        if not m:
+            continue
+        same = m.group(1).strip()
+        if same:
+            return same
+        # Look to next non-empty line if same-line value is empty
+        j = i + 1
+        while j < len(lines) and not lines[j].strip():
+            j += 1
+        if j < len(lines):
+            return lines[j].strip()
+    return ""
 
 def split_name(name: str) -> Tuple[str, str]:
     name = name.strip()
@@ -127,7 +144,8 @@ DASH_CUTOFF = r"(?m)^\s*[-_]{2,}\s*$"
 def extract_between_markers(text: str, start_label: str, end_regex: str = DASH_CUTOFF) -> str:
     if not text:
         return ""
-    m = re.search(rf"(?is){re.escape(start_label)}\s*:?\s*(.*)$", text)
+    # Find the label anywhere in the text
+    m = re.search(rf"(?is){re.escape(start_label)}\s*:\s*(.*)$", text)
     if not m:
         return ""
     start_idx = m.end(0)
