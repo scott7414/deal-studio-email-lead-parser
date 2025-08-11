@@ -332,19 +332,28 @@ def extract_businessbroker_html(html_body):
     text = soup.get_text(separator="\n")
 
     def get_after(label):
-        m = re.search(rf"{label}\s*:\s*([^\n\r]+)", text, re.IGNORECASE)
+        # Escape the label so dots and other chars are treated literally
+        pattern = rf"{re.escape(label)}\s*:\s*([^\n\r]+)"
+        m = re.search(pattern, text, re.IGNORECASE)
         return m.group(1).strip() if m else ''
 
+    def get_after_multi(labels):
+        for lab in labels:
+            v = get_after(lab)
+            if v:
+                return v
+        return ''
+
     headline    = get_after("Listing Header")
-    listing_id  = get_after("BusinessBroker\.net Listing Number")
+    listing_id  = get_after("BusinessBroker.net Listing Number")
     ref_id      = get_after("Your Internal Listing Number")
     first_name  = get_after("First Name")
     last_name   = get_after("Last Name")
     email       = get_after("Email")
     phone       = normalize_phone_us_e164(get_after("Phone"))
-    contact_zip = get_after(r"Zip|ZIP|Zip/Postal Code")
+    contact_zip = get_after_multi(["Zip", "ZIP", "Zip/Postal Code"])
 
-    # Comments: capture anything after "Comments:" up to a dashed line or end
+    # Comments: capture anything after "Comments:" up to dashed line or end
     comments = ''
     cmt = re.search(r"Comments\s*:\s*(.*?)(?:\n[-_]{3,}|\Z)", text, re.IGNORECASE | re.DOTALL)
     if cmt:
@@ -375,17 +384,25 @@ def extract_businessbroker_text(text_body):
     text = text_body.replace('\r', '')
 
     def get_after(label):
-        m = re.search(rf"{label}\s*:\s*([^\n\r]+)", text, re.IGNORECASE)
+        pattern = rf"{re.escape(label)}\s*:\s*([^\n\r]+)"
+        m = re.search(pattern, text, re.IGNORECASE)
         return m.group(1).strip() if m else ''
 
+    def get_after_multi(labels):
+        for lab in labels:
+            v = get_after(lab)
+            if v:
+                return v
+        return ''
+
     headline    = get_after("Listing Header")
-    listing_id  = get_after("BusinessBroker\.net Listing Number")
+    listing_id  = get_after("BusinessBroker.net Listing Number")
     ref_id      = get_after("Your Internal Listing Number")
     first_name  = get_after("First Name")
     last_name   = get_after("Last Name")
     email       = get_after("Email")
     phone       = normalize_phone_us_e164(get_after("Phone"))
-    contact_zip = get_after(r"Zip|ZIP|Zip/Postal Code")
+    contact_zip = get_after_multi(["Zip", "ZIP", "Zip/Postal Code"])
 
     # Comments block
     comments = ''
@@ -409,6 +426,7 @@ def extract_businessbroker_text(text_body):
         "services_interested_in": "",
         "heard_about": ""
     }
+
 
 
 
