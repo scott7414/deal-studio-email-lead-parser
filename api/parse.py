@@ -446,7 +446,7 @@ def extract_fcbb_html(html_body):
         "Phone Number": "phone",
         "Address": "address",
         "City": "city",
-        "State": "state",                 # not always present, but harmless to support
+        "State": "state",                 # not always present
         "Postal Code": "contact_zip",
         "Listing Number": "listing_id",
         "Domain": "domain",
@@ -456,7 +456,7 @@ def extract_fcbb_html(html_body):
 
     out = {k: "" for k in set(label_map.values())}
 
-    # Parse rows like: <tr><td><strong>Label:</strong></td> [nbsp] <td>Value</td></tr>
+    # Parse rows like: <tr><td><strong>Label:</strong></td> ... <td>Value</td></tr>
     for strong in soup.find_all("strong"):
         label_raw = strong.get_text(" ", strip=True).rstrip(":").strip()
         if not label_raw:
@@ -514,7 +514,7 @@ def extract_fcbb_html(html_body):
         "last_name": out.get("last_name", ""),
         "email": out.get("email", ""),
         "phone": out.get("phone", ""),
-        "ref_id": "",  # FCBB sample doesn't include a separate Ref ID
+        "ref_id": "",  # FCBB sample does not include a separate Ref ID
         "listing_id": out.get("listing_id", ""),
         "headline": "",  # not provided in sample
         "address": out.get("address", ""),
@@ -533,22 +533,24 @@ def extract_fcbb_html(html_body):
 # ✅ FCBB (TEXT) — First Choice Business Brokers (robust)
 # ==============================
 def extract_fcbb_text(text_body):
-    txt = text_body.replace("\r", "")
+    # Collapse all whitespace so wrapped labels like "Phone\nNumber:" match cleanly
+    txt = re.sub(r'\s+', ' ', text_body.replace("\r", ""))
+
     labels = [
         "Domain", "Listing Number", "First Name", "Last Name",
         "Email Address", "Phone Number", "Address", "City",
         "Postal Code", "Originating Website", "Current Site Page URL"
     ]
-    # Build a regex that captures "Label: value" until the next known label or end of string.
+    # Capture "Label: value" up to the next known label or end
     label_group = "|".join(map(re.escape, labels))
     pattern = rf"(?P<label>{label_group}):\s*(?P<value>.*?)(?=(?:{label_group}):|$)"
+
     found = {}
     for m in re.finditer(pattern, txt, flags=re.S):
         lab = m.group("label")
         val = m.group("value").strip()
         found[lab] = val
 
-    # Normalize fields
     first_name = found.get("First Name", "")
     last_name  = found.get("Last Name", "")
     email      = found.get("Email Address", "")
@@ -578,7 +580,6 @@ def extract_fcbb_text(text_body):
         "services_interested_in": "",
         "heard_about": ""
     }
-
 
 # ==============================
 # ✅ Mapper to unified nested schema
@@ -644,10 +645,17 @@ def parse_email():
         # FCBB detection
         if "fcbb.com" in lowered or "oms.fcbb.com" in lowered or "first choice business brokers" in lowered:
             try:
-                flat = extract_fcbb_html(body)
+                # Use the text parser for text emails; HTML parser for HTML
+                flat = extract_fcbb_html(body) if is_html else extract_fcbb_text(body)
                 return jsonify(to_nested("fcbb", flat))
             except Exception as e:
-                return jsonify(to_nested("fcbb", {}, f"parse_failed: {e}"))
+                # Last-chance: strip tags to text and try the text parser
+                try:
+                    text_only = BeautifulSoup(body, "html.parser").get_text("\n")
+                    flat = extract_fcbb_text(text_only)
+                    return jsonify(to_nested("fcbb", flat, f"fallback_text_ok: {e}"))
+                except Exception as e2:
+                    return jsonify(to_nested("fcbb", {}, f"parse_failed: {e}; fallback_failed: {e2}"))
 
         if "bizbuysell" in lowered:
             try:
