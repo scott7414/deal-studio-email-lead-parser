@@ -437,83 +437,148 @@ def extract_businessbroker_text(text_body):
 # ==============================
 def extract_fcbb_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
-    # Prefer the block that contains both tel: and mailto: so we anchor to the right section
-    a_tel = soup.find('a', href=lambda h: h and h.lower().startswith('tel:'))
-    a_mail = soup.find('a', href=lambda h: h and h.lower().startswith('mailto:'))
 
-    first_name = last_name = ref_id = headline = phone = email = ""
+    # Map FCBB labels -> our flat keys
+    label_map = {
+        "First Name": "first_name",
+        "Last Name": "last_name",
+        "Email Address": "email",
+        "Phone Number": "phone",
+        "Address": "address",
+        "City": "city",
+        "State": "state",                 # not always present, but harmless to support
+        "Postal Code": "contact_zip",
+        "Listing Number": "listing_id",
+        "Domain": "domain",
+        "Originating Website": "listing_url",
+        "Current Site Page URL": "current_page_url",
+    }
 
-    info_block = None
-    if a_tel and a_mail:
-        # climb ancestors from the tel link until one contains the mail link too
-        node = a_tel
-        while node and hasattr(node, 'find'):
-            if node.find('a', href=lambda h: h and h.lower().startswith('mailto:')):
-                info_block = node
-                break
-            node = node.parent
+    out = {k: "" for k in set(label_map.values())}
 
-    if info_block:
-        p_texts = [p.get_text(" ", strip=True) for p in info_block.find_all('p') if p.get_text(strip=True)]
-    else:
-        # fallback: whole document
-        p_texts = [t.strip() for t in soup.get_text("\n").replace("\r","").split("\n") if t.strip()]
+    # Parse rows like: <tr><td><strong>Label:</strong></td> [nbsp] <td>Value</td></tr>
+    for strong in soup.find_all("strong"):
+        label_raw = strong.get_text(" ", strip=True).rstrip(":").strip()
+        if not label_raw:
+            continue
+        key = label_map.get(label_raw)
+        if not key:
+            continue
 
-    # Find the "<ref> <headline>" line. Require at least one digit on BOTH sides of '-'
-    ref_line_idx = -1
-    ref_re = re.compile(r'^\s*((?:[A-Za-z]*\d+|\d+)[A-Za-z0-9\-]*-(?:[A-Za-z]*\d+|\d+)[A-Za-z0-9\-]*)\s+(.+)$')
-    for i, line in enumerate(p_texts):
-        m = ref_re.match(line)
-        if m and any(c.isalpha() for c in m.group(2)):
-            ref_id = m.group(1).strip()
-            headline = m.group(2).strip()
-            ref_line_idx = i
-            break
+        td_label = strong.find_parent("td")
+        tr = td_label.find_parent("tr") if td_label else None
+        value = ""
+        if tr:
+            tds = tr.find_all("td")
+            if len(tds) >= 2:
+                # The last <td> in the row holds the value
+                value = tds[-1].get_text(" ", strip=True)
 
-    # Name: usually immediately above ref line, all letters, no digits
-    if ref_line_idx > 0:
-        cand = p_texts[ref_line_idx - 1].strip()
-        if cand and not re.search(r'\d', cand) and '@' not in cand and '(' not in cand:
-            parts = cand.split()
-            first_name = parts[0]
-            last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+                # Prefer anchor text/href when applicable
+                if key == "email":
+                    a = tds[-1].find("a", href=True)
+                    if a and a["href"].lower().startswith("mailto:"):
+                        value = a.get_text(strip=True) or a["href"].split(":", 1)[-1]
+                if key in ("phone",):
+                    a = tds[-1].find("a", href=True)
+                    if a and a["href"].lower().startswith("tel:"):
+                        value = a.get_text(strip=True) or a["href"].split(":", 1)[-1]
 
-    # Phone & Email
-    # Prefer anchors from the HTML if present
-    if a_tel:
-        phone = a_tel.get_text(strip=True)
-    if not phone:
-        joined = "\n".join(p_texts)
-        m = re.search(r'(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}', joined)
-        if m:
-            phone = m.group(0).strip()
+        # Clean up commas like "Monterey Park,"
+        if key == "city":
+            value = value.rstrip(", ")
 
-    if a_mail:
-        email = a_mail.get_text(strip=True)
-    if not email:
-        joined = "\n".join(p_texts)
-        m = re.search(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}', joined)
-        if m:
-            email = m.group(0).strip()
+        out[key] = value.strip()
 
-    phone = normalize_phone_us_e164(phone)
+    # Fallbacks for email/phone if cells didn't include anchors
+    if not out.get("email"):
+        a_mail = soup.find("a", href=lambda h: h and h.lower().startswith("mailto:"))
+        if a_mail:
+            out["email"] = a_mail.get_text(strip=True) or a_mail["href"].split(":", 1)[-1]
+
+    if not out.get("phone"):
+        a_tel = soup.find("a", href=lambda h: h and h.lower().startswith("tel:"))
+        if a_tel:
+            out["phone"] = a_tel.get_text(strip=True) or a_tel["href"].split(":", 1)[-1]
+
+    # Normalize phone
+    out["phone"] = normalize_phone_us_e164(out.get("phone", ""))
+
+    # Choose best listing_url
+    if not out.get("listing_url"):
+        out["listing_url"] = out.get("current_page_url", "")
+
+    # Build final flat structure expected by to_nested
+    return {
+        "first_name": out.get("first_name", ""),
+        "last_name": out.get("last_name", ""),
+        "email": out.get("email", ""),
+        "phone": out.get("phone", ""),
+        "ref_id": "",  # FCBB sample doesn't include a separate Ref ID
+        "listing_id": out.get("listing_id", ""),
+        "headline": "",  # not provided in sample
+        "address": out.get("address", ""),
+        "city": out.get("city", ""),
+        "state": out.get("state", ""),
+        "contact_zip": out.get("contact_zip", ""),
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": "",
+        "listing_url": out.get("listing_url", ""),
+        "services_interested_in": "",
+        "heard_about": ""
+    }
+
+# ==============================
+# ✅ FCBB (TEXT) — First Choice Business Brokers (robust)
+# ==============================
+def extract_fcbb_text(text_body):
+    txt = text_body.replace("\r", "")
+    labels = [
+        "Domain", "Listing Number", "First Name", "Last Name",
+        "Email Address", "Phone Number", "Address", "City",
+        "Postal Code", "Originating Website", "Current Site Page URL"
+    ]
+    # Build a regex that captures "Label: value" until the next known label or end of string.
+    label_group = "|".join(map(re.escape, labels))
+    pattern = rf"(?P<label>{label_group}):\s*(?P<value>.*?)(?=(?:{label_group}):|$)"
+    found = {}
+    for m in re.finditer(pattern, txt, flags=re.S):
+        lab = m.group("label")
+        val = m.group("value").strip()
+        found[lab] = val
+
+    # Normalize fields
+    first_name = found.get("First Name", "")
+    last_name  = found.get("Last Name", "")
+    email      = found.get("Email Address", "")
+    phone      = normalize_phone_us_e164(found.get("Phone Number", ""))
+    address    = found.get("Address", "")
+    city       = (found.get("City", "") or "").rstrip(", ")
+    zip_code   = found.get("Postal Code", "")
+    listing_id = found.get("Listing Number", "")
+    listing_url = found.get("Originating Website", "") or found.get("Current Site Page URL", "")
 
     return {
         "first_name": first_name,
         "last_name": last_name,
         "email": email,
         "phone": phone,
-        "ref_id": ref_id,
-        "listing_id": "",
-        "headline": headline,
-        "contact_zip": "",
+        "ref_id": "",
+        "listing_id": listing_id,
+        "headline": "",
+        "address": address,
+        "city": city,
+        "state": "",
+        "contact_zip": zip_code,
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": "",
-        "listing_url": "",
+        "listing_url": listing_url,
         "services_interested_in": "",
         "heard_about": ""
     }
+
 
 # ==============================
 # ✅ Mapper to unified nested schema
