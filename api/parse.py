@@ -6,6 +6,7 @@ from flask import Flask, request, jsonify
 from bs4 import BeautifulSoup
 import html
 import re
+from urllib.parse import urlparse
 
 app = Flask(__name__)
 
@@ -53,6 +54,25 @@ def clean_comments_block(raw_text: str) -> str:
     text = re.sub(r'[ \t]+\n', '\n', text)
     text = re.sub(r'\n{2,}', '\n', text)
     return text.strip()
+
+def first_http_url(value: str) -> str:
+    """Grab the first visible http(s) URL and ignore bracketed tracking tails."""
+    if not value:
+        return ""
+    m = re.search(r'https?://[^\s\]]+', value)
+    return (m.group(0).rstrip(']') if m else value.strip())
+
+def derive_domain(s: str) -> str:
+    """Return bare domain (no scheme/www)."""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    if not s.startswith("http"):
+        s = "http://" + s
+    host = urlparse(s).netloc.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host
 
 # ==============================
 # ✅ BizBuySell (HTML) — original pattern
@@ -472,23 +492,39 @@ def extract_fcbb_html(html_body):
             tds = tr.find_all("td")
             if len(tds) >= 2:
                 # The last <td> in the row holds the value
-                value = tds[-1].get_text(" ", strip=True)
-
-                # Prefer anchor text/href when applicable
-                if key == "email":
-                    a = tds[-1].find("a", href=True)
-                    if a and a["href"].lower().startswith("mailto:"):
-                        value = a.get_text(strip=True) or a["href"].split(":", 1)[-1]
-                if key in ("phone",):
-                    a = tds[-1].find("a", href=True)
-                    if a and a["href"].lower().startswith("tel:"):
-                        value = a.get_text(strip=True) or a["href"].split(":", 1)[-1]
+                cell = tds[-1]
+                cell_text = cell.get_text(" ", strip=True)
+                # Prefer visible URL text if present
+                if key in ("listing_url", "current_page_url"):
+                    url = first_http_url(cell_text)
+                    if not url:
+                        a = cell.find("a", href=True)
+                        if a:
+                            # Prefer anchor text if it's a URL; else use href
+                            url = first_http_url(a.get_text(strip=True)) or a["href"]
+                    value = url
+                else:
+                    # Prefer anchor text for mail/phone; otherwise plain text
+                    if key == "email":
+                        a = cell.find("a", href=True)
+                        if a and a["href"].lower().startswith("mailto:"):
+                            value = a.get_text(strip=True) or a["href"].split(":", 1)[-1]
+                        else:
+                            value = cell_text
+                    elif key == "phone":
+                        a = cell.find("a", href=True)
+                        if a and a["href"].lower().startswith("tel:"):
+                            value = a.get_text(strip=True) or a["href"].split(":", 1)[-1]
+                        else:
+                            value = cell_text
+                    else:
+                        value = cell_text
 
         # Clean up commas like "Monterey Park,"
         if key == "city":
             value = value.rstrip(", ")
 
-        out[key] = value.strip()
+        out[key] = (value or "").strip()
 
     # Fallbacks for email/phone if cells didn't include anchors
     if not out.get("email"):
@@ -504,11 +540,19 @@ def extract_fcbb_html(html_body):
     # Normalize phone
     out["phone"] = normalize_phone_us_e164(out.get("phone", ""))
 
-    # Choose best listing_url
-    if not out.get("listing_url"):
-        out["listing_url"] = out.get("current_page_url", "")
+    # Normalize domain (either labeled Domain or derived)
+    domain = (out.get("domain") or "").strip()
+    if domain:
+        domain = derive_domain(domain)
+    else:
+        # derive from originating or current page
+        domain = derive_domain(out.get("listing_url")) or derive_domain(out.get("current_page_url"))
+    out["domain"] = domain
 
-    # Build final flat structure expected by to_nested
+    # Build final flat structure expected by to_nested (+ extra fields)
+    originating_website = out.get("listing_url", "")
+    current_site_page_url = out.get("current_page_url", "")
+
     return {
         "first_name": out.get("first_name", ""),
         "last_name": out.get("last_name", ""),
@@ -524,7 +568,11 @@ def extract_fcbb_html(html_body):
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": "",
-        "listing_url": out.get("listing_url", ""),
+        # Back-compat listing_url, plus labeled fields:
+        "listing_url": originating_website,
+        "originating_website": originating_website,
+        "current_site_page_url": current_site_page_url,
+        "domain": out.get("domain", ""),
         "services_interested_in": "",
         "heard_about": ""
     }
@@ -533,7 +581,7 @@ def extract_fcbb_html(html_body):
 # ✅ FCBB (TEXT) — First Choice Business Brokers (robust)
 # ==============================
 def extract_fcbb_text(text_body):
-    # Collapse all whitespace so wrapped labels like "Phone\nNumber:" match cleanly
+    # Collapse whitespace so wrapped labels like "Phone\nNumber:" match cleanly
     txt = re.sub(r'\s+', ' ', text_body.replace("\r", ""))
 
     labels = [
@@ -559,7 +607,14 @@ def extract_fcbb_text(text_body):
     city       = (found.get("City", "") or "").rstrip(", ")
     zip_code   = found.get("Postal Code", "")
     listing_id = found.get("Listing Number", "")
-    listing_url = found.get("Originating Website", "") or found.get("Current Site Page URL", "")
+
+    # Only pick the first real URL (ignore bracketed tracking)
+    originating_website = first_http_url(found.get("Originating Website", ""))
+    current_site_page_url = first_http_url(found.get("Current Site Page URL", ""))
+
+    # Domain: use labeled Domain, else derive from URLs
+    domain_label = found.get("Domain", "")
+    domain = derive_domain(domain_label) or derive_domain(originating_website) or derive_domain(current_site_page_url)
 
     return {
         "first_name": first_name,
@@ -576,7 +631,11 @@ def extract_fcbb_text(text_body):
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": "",
-        "listing_url": listing_url,
+        # Back-compat listing_url, plus labeled fields:
+        "listing_url": originating_website,
+        "originating_website": originating_website,
+        "current_site_page_url": current_site_page_url,
+        "domain": domain,
         "services_interested_in": "",
         "heard_about": ""
     }
@@ -586,6 +645,10 @@ def extract_fcbb_text(text_body):
 # ==============================
 def to_nested(source: str, flat: dict, error_debug: str = "") -> dict:
     flat = remove_not_disclosed_fields(flat or {})
+
+    # Prefer originating_website for listing_url if present
+    listing_url = flat.get("listing_url", "") or flat.get("originating_website", "") or flat.get("current_site_page_url", "")
+
     nested = {
         "source": source,
         "contact": {
@@ -606,7 +669,11 @@ def to_nested(source: str, flat: dict, error_debug: str = "") -> dict:
             "headline": flat.get("headline", ""),
             "ref_id": flat.get("ref_id", ""),
             "listing_id": flat.get("listing_id", ""),
-            "listing_url": flat.get("listing_url", "")
+            "listing_url": listing_url,
+            # ✅ Preserve FCBB-specific labels
+            "originating_website": flat.get("originating_website", ""),
+            "current_site_page_url": flat.get("current_site_page_url", ""),
+            "domain": flat.get("domain", "")
         },
         "details": {
             "purchase_timeline": flat.get("purchase_timeline", ""),
