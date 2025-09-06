@@ -470,8 +470,8 @@ def extract_fcbb_html(html_body):
         "Postal Code": "contact_zip",
         "Listing Number": "listing_id",
         "Domain": "domain",
-        "Originating Website": "listing_url",
-        "Current Site Page URL": "current_page_url",
+        "Originating Website": "originating_website",
+        "Current Site Page URL": "current_site_page_url",
     }
 
     out = {k: "" for k in set(label_map.values())}
@@ -491,36 +491,32 @@ def extract_fcbb_html(html_body):
         if tr:
             tds = tr.find_all("td")
             if len(tds) >= 2:
-                # The last <td> in the row holds the value
                 cell = tds[-1]
                 cell_text = cell.get_text(" ", strip=True)
-                # Prefer visible URL text if present
-                if key in ("listing_url", "current_page_url"):
+
+                if key in ("originating_website", "current_site_page_url"):
+                    # Prefer visible URL text; fall back to anchor if necessary
                     url = first_http_url(cell_text)
                     if not url:
                         a = cell.find("a", href=True)
                         if a:
-                            # Prefer anchor text if it's a URL; else use href
                             url = first_http_url(a.get_text(strip=True)) or a["href"]
                     value = url
-                else:
-                    # Prefer anchor text for mail/phone; otherwise plain text
-                    if key == "email":
-                        a = cell.find("a", href=True)
-                        if a and a["href"].lower().startswith("mailto:"):
-                            value = a.get_text(strip=True) or a["href"].split(":", 1)[-1]
-                        else:
-                            value = cell_text
-                    elif key == "phone":
-                        a = cell.find("a", href=True)
-                        if a and a["href"].lower().startswith("tel:"):
-                            value = a.get_text(strip=True) or a["href"].split(":", 1)[-1]
-                        else:
-                            value = cell_text
+                elif key == "email":
+                    a = cell.find("a", href=True)
+                    if a and a["href"].lower().startswith("mailto:"):
+                        value = a.get_text(strip=True) or a["href"].split(":", 1)[-1]
                     else:
                         value = cell_text
+                elif key == "phone":
+                    a = cell.find("a", href=True)
+                    if a and a["href"].lower().startswith("tel:"):
+                        value = a.get_text(strip=True) or a["href"].split(":", 1)[-1]
+                    else:
+                        value = cell_text
+                else:
+                    value = cell_text
 
-        # Clean up commas like "Monterey Park,"
         if key == "city":
             value = value.rstrip(", ")
 
@@ -540,27 +536,22 @@ def extract_fcbb_html(html_body):
     # Normalize phone
     out["phone"] = normalize_phone_us_e164(out.get("phone", ""))
 
-    # Normalize domain (either labeled Domain or derived)
-    domain = (out.get("domain") or "").strip()
-    if domain:
-        domain = derive_domain(domain)
+    # Normalize / derive domain
+    domain_val = (out.get("domain") or "").strip()
+    if domain_val:
+        out["domain"] = derive_domain(domain_val)
     else:
-        # derive from originating or current page
-        domain = derive_domain(out.get("listing_url")) or derive_domain(out.get("current_page_url"))
-    out["domain"] = domain
+        out["domain"] = derive_domain(out.get("originating_website")) or derive_domain(out.get("current_site_page_url"))
 
-    # Build final flat structure expected by to_nested (+ extra fields)
-    originating_website = out.get("listing_url", "")
-    current_site_page_url = out.get("current_page_url", "")
-
+    # FCBB does NOT populate generic listing_url
     return {
         "first_name": out.get("first_name", ""),
         "last_name": out.get("last_name", ""),
         "email": out.get("email", ""),
         "phone": out.get("phone", ""),
-        "ref_id": "",  # FCBB sample does not include a separate Ref ID
+        "ref_id": "",
         "listing_id": out.get("listing_id", ""),
-        "headline": "",  # not provided in sample
+        "headline": "",
         "address": out.get("address", ""),
         "city": out.get("city", ""),
         "state": out.get("state", ""),
@@ -568,10 +559,10 @@ def extract_fcbb_html(html_body):
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": "",
-        # Back-compat listing_url, plus labeled fields:
-        "listing_url": originating_website,
-        "originating_website": originating_website,
-        "current_site_page_url": current_site_page_url,
+        # keep labeled fields only:
+        "listing_url": "",  # intentionally blank for FCBB
+        "originating_website": out.get("originating_website", ""),
+        "current_site_page_url": out.get("current_site_page_url", ""),
         "domain": out.get("domain", ""),
         "services_interested_in": "",
         "heard_about": ""
@@ -616,6 +607,7 @@ def extract_fcbb_text(text_body):
     domain_label = found.get("Domain", "")
     domain = derive_domain(domain_label) or derive_domain(originating_website) or derive_domain(current_site_page_url)
 
+    # FCBB does NOT populate generic listing_url
     return {
         "first_name": first_name,
         "last_name": last_name,
@@ -631,8 +623,7 @@ def extract_fcbb_text(text_body):
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": "",
-        # Back-compat listing_url, plus labeled fields:
-        "listing_url": originating_website,
+        "listing_url": "",  # intentionally blank for FCBB
         "originating_website": originating_website,
         "current_site_page_url": current_site_page_url,
         "domain": domain,
@@ -646,8 +637,11 @@ def extract_fcbb_text(text_body):
 def to_nested(source: str, flat: dict, error_debug: str = "") -> dict:
     flat = remove_not_disclosed_fields(flat or {})
 
-    # Prefer originating_website for listing_url if present
-    listing_url = flat.get("listing_url", "") or flat.get("originating_website", "") or flat.get("current_site_page_url", "")
+    # For FCBB, DO NOT backfill listing_url from labeled fields
+    if source == "fcbb":
+        listing_url = flat.get("listing_url", "")
+    else:
+        listing_url = flat.get("listing_url", "") or flat.get("originating_website", "") or flat.get("current_site_page_url", "")
 
     nested = {
         "source": source,
@@ -670,7 +664,7 @@ def to_nested(source: str, flat: dict, error_debug: str = "") -> dict:
             "ref_id": flat.get("ref_id", ""),
             "listing_id": flat.get("listing_id", ""),
             "listing_url": listing_url,
-            # ✅ Preserve FCBB-specific labels
+            # ✅ Preserve FCBB-specific labels (and harmless for others if present)
             "originating_website": flat.get("originating_website", ""),
             "current_site_page_url": flat.get("current_site_page_url", ""),
             "domain": flat.get("domain", "")
