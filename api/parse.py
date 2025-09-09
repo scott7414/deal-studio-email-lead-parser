@@ -74,6 +74,121 @@ def derive_domain(s: str) -> str:
         host = host[4:]
     return host
 
+def parse_address_loose(addr: str, default_country: str = "") -> dict:
+    """
+    Heuristic parser for common formats (US, UK, Canada) from a single line.
+    Returns {address1, city, state, zip, country}.
+    Safe to call on footer-like lines; if nothing matches, returns mostly empty.
+    """
+    if not addr:
+        return {"address1": "", "city": "", "state": "", "zip": "", "country": default_country or ""}
+
+    s = re.sub(r'\s+', ' ', addr.strip())
+    s = s.strip(' .')  # trim trailing periods/spaces
+
+    # Pull out an explicit country at the end if present
+    country = default_country or ""
+    country_map = {
+        r'\b(united\s+kingdom|uk)\b': 'United Kingdom',
+        r'\b(united\s+states|usa|us)\b': 'United States',
+        r'\b(canada)\b': 'Canada',
+        r'\b(england|scotland|wales|northern\s+ireland)\b': 'United Kingdom',  # treated as UK
+    }
+    tail = s.lower()
+    for pat, name in country_map.items():
+        m = re.search(pat + r'\.?$', tail)  # only at end
+        if m:
+            country = name
+            s = s[:m.start()].strip(' ,.')
+            break
+
+    # Regexes
+    us_zip_re = re.compile(r'\b\d{5}(?:-\d{4})?\b')
+    us_state_re = re.compile(r'\b(AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NC|ND|NE|NH|NJ|NM|NV|NY|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VA|VT|WA|WI|WV|WY)\b', re.I)
+
+    ca_postal_re = re.compile(r'\b[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z]\s?\d[ABCEGHJ-NPRSTV-Z]\d\b', re.I)
+
+    # UK postcode (two parts to preserve the space)
+    uk_postal_re = re.compile(r'\b([A-Z]{1,2}\d{1,2}[A-Z]?)\s*(\d[A-Z]{2})\b', re.I)
+
+    parts = [p.strip(' .,') for p in re.split(r'[;,]', s) if p.strip(' .,')]
+    # Try UK
+    m_uk = uk_postal_re.search(s)
+    if m_uk:
+        zip_code = (m_uk.group(1).upper() + " " + m_uk.group(2).upper()).strip()
+        # City: token immediately before the postcode (by comma split)
+        city = ""
+        before = s[:m_uk.start()].strip(' ,.')
+        before_parts = [p.strip() for p in re.split(r'[;,]', before) if p.strip()]
+        if before_parts:
+            city = before_parts[-1]
+        # Address1: everything before city
+        address1 = ", ".join(before_parts[:-1]) if len(before_parts) > 1 else ""
+        # State is not generally used for UK (optionally use England/Scotland… if you want)
+        state = ""
+        return {
+            "address1": address1,
+            "city": city,
+            "state": state,
+            "zip": zip_code,
+            "country": country or "United Kingdom"
+        }
+
+    # Try US
+    m_us_zip = us_zip_re.search(s)
+    if m_us_zip:
+        zip_code = m_us_zip.group(0)
+        before = s[:m_us_zip.start()].strip(' ,.')
+        after = s[m_us_zip.end():].strip(' ,.')
+
+        # Try to find state (2-letter) immediately before ZIP in the "before" chunk
+        state = ""
+        city = ""
+        bparts = [p.strip() for p in re.split(r'[;,]', before) if p.strip()]
+        if bparts:
+            last = bparts[-1]
+            m_state = us_state_re.search(last)
+            if m_state:
+                state = m_state.group(1).upper()
+                # city = text before state in that part (or previous part)
+                city = last[:m_state.start()].strip(' ,') or (bparts[-2] if len(bparts) >= 2 else "")
+                # address1 = everything before the city block
+                address1 = ", ".join(bparts[:-1]) if len(bparts) > 1 else ""
+            else:
+                # No explicit state: assume last part is city, rest is address1
+                city = last
+                address1 = ", ".join(bparts[:-1]) if len(bparts) > 1 else ""
+        else:
+            address1 = ""
+        return {
+            "address1": address1,
+            "city": city,
+            "state": state,
+            "zip": zip_code,
+            "country": country or "United States"
+        }
+
+    # Try Canada
+    m_ca = ca_postal_re.search(s)
+    if m_ca:
+        zip_code = m_ca.group(0).upper()
+        before = s[:m_ca.start()].strip(' ,.')
+        bparts = [p.strip() for p in re.split(r'[;,]', before) if p.strip()]
+        city = bparts[-1] if bparts else ""
+        address1 = ", ".join(bparts[:-1]) if len(bparts) > 1 else ""
+        state = ""  # (Province isn’t parsed here—can be added similarly to US states if needed)
+        return {
+            "address1": address1,
+            "city": city,
+            "state": state,
+            "zip": zip_code,
+            "country": country or "Canada"
+        }
+
+    # Fallback: return as address1
+    return {"address1": s, "city": "", "state": "", "zip": "", "country": country}
+
+
 # ==============================
 # ✅ BizBuySell (HTML) — original pattern
 # ==============================
