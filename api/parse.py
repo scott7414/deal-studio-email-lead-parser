@@ -167,41 +167,38 @@ def extract_bizbuysell_text(text_body):
     """
     Robust BizBuySell TEXT parser:
       - Values are captured until the next label (handles multiple labels on one line).
-      - Flexible label matching tolerates newlines inside labels (e.g., "Contact\nPhone").
-      - Keeps existing headline extraction logic.
+      - Footer after 'Comments:' is trimmed so it doesn't leak into comments.
     """
     txt = text_body.replace('\r', '')
 
-    # --- Headline (same as before) ---
+    # --- Headline (unchanged) ---
     headline = ''
     h_match = re.search(r"regarding your listing:\s*(.*?)\s*Listing ID", txt, re.DOTALL | re.IGNORECASE)
     if h_match:
         headline = h_match.group(1).strip()
 
-    # --- Flexible, label-bounded extraction ---
+    # --- Labels & bounded extraction ---
     labels = [
         "Contact Name", "Contact Email", "Contact Phone", "Contact Zip",
         "Able to Invest", "Purchase Within", "Comments", "Listing ID", "Ref ID"
     ]
 
-    # Build a regex that tolerates arbitrary whitespace (incl. newlines) inside labels.
     def label_to_re(l):
-        # "Contact Phone" -> r"\bContact\s*Phone\s*:"
+        # Tolerate newlines/extra spaces inside labels, e.g. "Contact\nPhone:"
         return r"\b" + r"\s*".join(map(re.escape, l.split())) + r"\s*:"
 
     label_union = "|".join(f"({label_to_re(l)})" for l in labels)
     label_re = re.compile(label_union, flags=re.IGNORECASE)
 
-    # Find all label occurrences with positions, and map back to canonical names
-    def normalize(s): return re.sub(r"\s+", "", s).lower()
-    canon_map = {normalize(l): l for l in labels}
+    def _norm(s): return re.sub(r"\s+", "", s).lower()
+    canon_map = {_norm(l): l for l in labels}
 
     matches = []
     for m in label_re.finditer(txt):
-        matched = m.group(0)                 # e.g. "Contact\nPhone:"
+        matched = m.group(0)
         label_no_colon = re.sub(r":\s*$", "", matched)
-        label_norm = normalize(re.sub(r"\s+", " ", label_no_colon))
-        canon = canon_map.get(label_norm, None)
+        label_norm = _norm(re.sub(r"\s+", " ", label_no_colon))
+        canon = canon_map.get(label_norm)
         if canon:
             matches.append((canon, m.start(), m.end()))
 
@@ -209,7 +206,7 @@ def extract_bizbuysell_text(text_body):
     for i, (label, start, end) in enumerate(matches):
         nxt_start = matches[i + 1][1] if i + 1 < len(matches) else len(txt)
         val = txt[end:nxt_start].strip()
-        # Ref ID sometimes includes a harmless header; strip it
+        # Ref ID sometimes includes a stray header; strip it
         if label == "Ref ID":
             val = re.sub(r'Inquirer.?s Information', '', val, flags=re.IGNORECASE).strip()
         fields[label] = val
@@ -219,11 +216,10 @@ def extract_bizbuysell_text(text_body):
     first_name, last_name = (name.split(' ', 1) if ' ' in name else (name, ''))
 
     email = fields.get("Contact Email", "").strip()
-
     phone_raw = fields.get("Contact Phone", "").strip()
     phone = normalize_phone_us_e164(phone_raw)
 
-    # Listing ID tends to be numeric; grab the first number if extras appear
+    # Listing ID → first number if extra text exists
     listing_id_raw = fields.get("Listing ID", "").strip()
     m_id = re.search(r'\d+', listing_id_raw)
     listing_id = m_id.group(0) if m_id else listing_id_raw
@@ -233,12 +229,36 @@ def extract_bizbuysell_text(text_body):
     investment_amount = fields.get("Able to Invest", "").strip()
     purchase_timeline = fields.get("Purchase Within", "").strip()
 
-    comments = fields.get("Comments", "").strip()
-    comments = clean_comments_block(comments)
+    # --- Comments: strip BizBuySell footer + bracketed URLs, then run generic cleaner ---
+    def _trim_bizbuysell_footer(s: str) -> str:
+        if not s:
+            return ""
+        # Remove bracketed URLs like [https://...]
+        s = re.sub(r'\[https?://[^\]]+\]', '', s)
+        # Cut off known footer markers
+        footer_markers = [
+            r'You can reply directly to this email',
+            r'We take our lead quality',
+            r'Thank you,\s*BizBuySell',
+            r'Unsubscribe',
+            r'Email Preferences',
+            r'Terms of Use',
+            r'Privacy Notice',
+            r'Contact Us',
+            r'This system email was sent to you by BizBuySell'
+        ]
+        pat = re.compile(r'(?is)\b(?:' + '|'.join(footer_markers) + r')\b')
+        m = pat.search(s)
+        if m:
+            s = s[:m.start()]
+        return s.strip()
+
+    comments_raw = fields.get("Comments", "").strip()
+    comments = clean_comments_block(_trim_bizbuysell_footer(comments_raw))
 
     return {
         "first_name": first_name,
-        "last_name": last_name,          # <-- now just "Vincent", not appended email
+        "last_name": last_name,          # no more footer leakage
         "email": email,
         "phone": phone,
         "ref_id": ref_id,
