@@ -458,7 +458,6 @@ def extract_businessbroker_text(text_body):
 def extract_fcbb_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
-    # Map FCBB labels -> our flat keys
     label_map = {
         "First Name": "first_name",
         "Last Name": "last_name",
@@ -466,10 +465,10 @@ def extract_fcbb_html(html_body):
         "Phone Number": "phone",
         "Address": "address",
         "City": "city",
-        "State": "state",                 # not always present
+        "State": "state",
         "Postal Code": "contact_zip",
         "Listing Number": "listing_id",
-        "Listing Description": "headline",  # ← added
+        "Listing Description": "listing_description",   # ← capture explicit field
         "Domain": "domain",
         "Originating Website": "originating_website",
         "Current Site Page URL": "current_site_page_url",
@@ -477,11 +476,8 @@ def extract_fcbb_html(html_body):
 
     out = {k: "" for k in set(label_map.values())}
 
-    # Parse rows like: <tr><td><strong>Label:</strong></td> ... <td>Value</td></tr>
     for strong in soup.find_all("strong"):
         label_raw = strong.get_text(" ", strip=True).rstrip(":").strip()
-        if not label_raw:
-            continue
         key = label_map.get(label_raw)
         if not key:
             continue
@@ -494,7 +490,6 @@ def extract_fcbb_html(html_body):
             if len(tds) >= 2:
                 cell = tds[-1]
                 cell_text = cell.get_text(" ", strip=True)
-
                 if key in ("originating_website", "current_site_page_url"):
                     url = first_http_url(cell_text)
                     if not url:
@@ -519,31 +514,28 @@ def extract_fcbb_html(html_body):
 
         if key == "city":
             value = value.rstrip(", ")
-
         out[key] = (value or "").strip()
 
-    # Fallbacks for email/phone if cells didn't include anchors
     if not out.get("email"):
         a_mail = soup.find("a", href=lambda h: h and h.lower().startswith("mailto:"))
         if a_mail:
             out["email"] = a_mail.get_text(strip=True) or a_mail["href"].split(":", 1)[-1]
-
     if not out.get("phone"):
         a_tel = soup.find("a", href=lambda h: h and h.lower().startswith("tel:"))
         if a_tel:
             out["phone"] = a_tel.get_text(strip=True) or a_tel["href"].split(":", 1)[-1]
 
-    # Normalize phone
     out["phone"] = normalize_phone_us_e164(out.get("phone", ""))
 
-    # Normalize / derive domain
     domain_val = (out.get("domain") or "").strip()
     if domain_val:
         out["domain"] = derive_domain(domain_val)
     else:
         out["domain"] = derive_domain(out.get("originating_website")) or derive_domain(out.get("current_site_page_url"))
 
-    # FCBB does NOT populate generic listing_url
+    # headline = listing_description (when present)
+    headline = out.get("listing_description", "")
+
     return {
         "first_name": out.get("first_name", ""),
         "last_name": out.get("last_name", ""),
@@ -551,7 +543,8 @@ def extract_fcbb_html(html_body):
         "phone": out.get("phone", ""),
         "ref_id": "",
         "listing_id": out.get("listing_id", ""),
-        "headline": out.get("headline", ""),  # ← now supported if present
+        "headline": headline,                        # keep for compatibility
+        "listing_description": headline,             # new explicit field
         "address": out.get("address", ""),
         "city": out.get("city", ""),
         "state": out.get("state", ""),
@@ -559,7 +552,7 @@ def extract_fcbb_html(html_body):
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": "",
-        "listing_url": "",  # intentionally blank for FCBB
+        "listing_url": "",  # FCBB stays empty
         "originating_website": out.get("originating_website", ""),
         "current_site_page_url": out.get("current_site_page_url", ""),
         "domain": out.get("domain", ""),
@@ -571,15 +564,13 @@ def extract_fcbb_html(html_body):
 # ✅ FCBB (TEXT) — First Choice Business Brokers (robust)
 # ==============================
 def extract_fcbb_text(text_body):
-    # Collapse whitespace so wrapped labels like "Phone\nNumber:" match cleanly
     txt = re.sub(r'\s+', ' ', text_body.replace("\r", ""))
 
     labels = [
-        "Domain", "Listing Number", "Listing Description",  # ← added Listing Description
+        "Domain", "Listing Number", "Listing Description",
         "First Name", "Last Name", "Email Address", "Phone Number",
         "Address", "City", "Postal Code", "Originating Website", "Current Site Page URL"
     ]
-    # Capture "Label: value" up to the next known label or end
     label_group = "|".join(map(re.escape, labels))
     pattern = rf"(?P<label>{label_group}):\s*(?P<value>.*?)(?=(?:{label_group}):|$)"
 
@@ -596,22 +587,16 @@ def extract_fcbb_text(text_body):
     address    = found.get("Address", "")
     city       = (found.get("City", "") or "").rstrip(", ")
     zip_code   = found.get("Postal Code", "")
+
     listing_id = (found.get("Listing Number", "") or "").strip()
-    # Extra safety: if an oddball format still embeds the next label, cut it off
     listing_id = re.split(r"\s+Listing Description\s*:", listing_id, 1)[0].strip()
 
-    # New: capture Listing Description as headline
     headline   = found.get("Listing Description", "").strip()
-
-    # Only pick the first real URL (ignore bracketed tracking)
     originating_website   = first_http_url(found.get("Originating Website", ""))
     current_site_page_url = first_http_url(found.get("Current Site Page URL", ""))
-
-    # Domain: use labeled Domain, else derive from URLs
     domain_label = found.get("Domain", "")
     domain = derive_domain(domain_label) or derive_domain(originating_website) or derive_domain(current_site_page_url)
 
-    # FCBB does NOT populate generic listing_url
     return {
         "first_name": first_name,
         "last_name": last_name,
@@ -619,7 +604,8 @@ def extract_fcbb_text(text_body):
         "phone": phone,
         "ref_id": "",
         "listing_id": listing_id,
-        "headline": headline,  # ← now populated
+        "headline": headline,                       # keep for compatibility
+        "listing_description": headline,            # new explicit field
         "address": address,
         "city": city,
         "state": "",
@@ -627,14 +613,13 @@ def extract_fcbb_text(text_body):
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": "",
-        "listing_url": "",  # intentionally blank for FCBB
+        "listing_url": "",  # FCBB stays empty
         "originating_website": originating_website,
         "current_site_page_url": current_site_page_url,
         "domain": domain,
         "services_interested_in": "",
         "heard_about": ""
     }
-
 
 # ==============================
 # ✅ Mapper to unified nested schema
