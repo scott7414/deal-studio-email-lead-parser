@@ -469,6 +469,7 @@ def extract_fcbb_html(html_body):
         "State": "state",                 # not always present
         "Postal Code": "contact_zip",
         "Listing Number": "listing_id",
+        "Listing Description": "headline",  # ← added
         "Domain": "domain",
         "Originating Website": "originating_website",
         "Current Site Page URL": "current_site_page_url",
@@ -495,7 +496,6 @@ def extract_fcbb_html(html_body):
                 cell_text = cell.get_text(" ", strip=True)
 
                 if key in ("originating_website", "current_site_page_url"):
-                    # Prefer visible URL text; fall back to anchor if necessary
                     url = first_http_url(cell_text)
                     if not url:
                         a = cell.find("a", href=True)
@@ -551,7 +551,7 @@ def extract_fcbb_html(html_body):
         "phone": out.get("phone", ""),
         "ref_id": "",
         "listing_id": out.get("listing_id", ""),
-        "headline": "",
+        "headline": out.get("headline", ""),  # ← now supported if present
         "address": out.get("address", ""),
         "city": out.get("city", ""),
         "state": out.get("state", ""),
@@ -559,7 +559,6 @@ def extract_fcbb_html(html_body):
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": "",
-        # keep labeled fields only:
         "listing_url": "",  # intentionally blank for FCBB
         "originating_website": out.get("originating_website", ""),
         "current_site_page_url": out.get("current_site_page_url", ""),
@@ -576,9 +575,9 @@ def extract_fcbb_text(text_body):
     txt = re.sub(r'\s+', ' ', text_body.replace("\r", ""))
 
     labels = [
-        "Domain", "Listing Number", "First Name", "Last Name",
-        "Email Address", "Phone Number", "Address", "City",
-        "Postal Code", "Originating Website", "Current Site Page URL"
+        "Domain", "Listing Number", "Listing Description",  # ← added Listing Description
+        "First Name", "Last Name", "Email Address", "Phone Number",
+        "Address", "City", "Postal Code", "Originating Website", "Current Site Page URL"
     ]
     # Capture "Label: value" up to the next known label or end
     label_group = "|".join(map(re.escape, labels))
@@ -597,10 +596,15 @@ def extract_fcbb_text(text_body):
     address    = found.get("Address", "")
     city       = (found.get("City", "") or "").rstrip(", ")
     zip_code   = found.get("Postal Code", "")
-    listing_id = found.get("Listing Number", "")
+    listing_id = (found.get("Listing Number", "") or "").strip()
+    # Extra safety: if an oddball format still embeds the next label, cut it off
+    listing_id = re.split(r"\s+Listing Description\s*:", listing_id, 1)[0].strip()
+
+    # New: capture Listing Description as headline
+    headline   = found.get("Listing Description", "").strip()
 
     # Only pick the first real URL (ignore bracketed tracking)
-    originating_website = first_http_url(found.get("Originating Website", ""))
+    originating_website   = first_http_url(found.get("Originating Website", ""))
     current_site_page_url = first_http_url(found.get("Current Site Page URL", ""))
 
     # Domain: use labeled Domain, else derive from URLs
@@ -615,7 +619,7 @@ def extract_fcbb_text(text_body):
         "phone": phone,
         "ref_id": "",
         "listing_id": listing_id,
-        "headline": "",
+        "headline": headline,  # ← now populated
         "address": address,
         "city": city,
         "state": "",
@@ -630,6 +634,7 @@ def extract_fcbb_text(text_body):
         "services_interested_in": "",
         "heard_about": ""
     }
+
 
 # ==============================
 # ✅ Mapper to unified nested schema
