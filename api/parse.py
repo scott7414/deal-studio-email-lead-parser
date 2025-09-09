@@ -215,9 +215,15 @@ def extract_bizbuysell_text(text_body):
     name = fields.get("Contact Name", "").strip()
     first_name, last_name = (name.split(' ', 1) if ' ' in name else (name, ''))
 
-    email = fields.get("Contact Email", "").strip()
-    phone_raw = fields.get("Contact Phone", "").strip()
-    phone = normalize_phone_us_e164(phone_raw)
+    # CHANGED: extract only the first real email token from the segment
+    email_raw = fields.get("Contact Email", "").strip()
+    m_email = re.search(r'(?<!/)[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}', email_raw)
+    email = m_email.group(0) if m_email else (email_raw.split()[0] if email_raw else "")
+
+    # CHANGED: extract only the first phone token from the segment, then normalize
+    phone_block = fields.get("Contact Phone", "")
+    m_phone = re.search(r'(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}', phone_block)
+    phone = normalize_phone_us_e164(m_phone.group(0) if m_phone else phone_block)
 
     # Listing ID → first number if extra text exists
     listing_id_raw = fields.get("Listing ID", "").strip()
@@ -258,9 +264,9 @@ def extract_bizbuysell_text(text_body):
 
     return {
         "first_name": first_name,
-        "last_name": last_name,          # no more footer leakage
-        "email": email,
-        "phone": phone,
+        "last_name": last_name,
+        "email": email,          # now guaranteed to be just the address
+        "phone": phone,          # handles (832)\n453-6114
         "ref_id": ref_id,
         "listing_id": listing_id,
         "headline": headline,
