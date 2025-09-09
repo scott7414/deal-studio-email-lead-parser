@@ -287,33 +287,62 @@ def extract_businessesforsale_text(text_body):
     lines = [line.strip() for line in lines if line.strip()]
     full_text = "\n".join(lines)
 
-    def get_field(label):
-        m = re.search(rf"{label}:\s*(.+)", full_text)
-        return m.group(1).strip() if m else ''
+    # ---- Robust ref/headline/url block ----
+    # Examples we need to handle:
+    # "Your listing ref:101-24414 Seafood Bar ...\nhttps://us.businessesforsale.com/..."
+    # (note: hyphen in ref id, no space after colon)
+    block = re.search(
+        r"(?is)your\s+listing\s+ref\s*:\s*([A-Za-z0-9\-]+)\s+(.+?)\s*\n(https?://\S+)",
+        full_text
+    )
 
     ref_id, headline, listing_url = '', '', ''
-    block = re.search(r"Your listing ref:(\d+)\s+(.+)\n(https?://[^\s]+)", full_text)
     if block:
         ref_id, headline, listing_url = block.groups()
-        ref_id, headline, listing_url = ref_id.strip(), headline.strip(), listing_url.strip()
+        ref_id = ref_id.strip()
+        headline = headline.strip()
+        listing_url = listing_url.strip()
+    else:
+        # Fallback: pull ref id, headline, and then nearest URL after that segment
+        m_ref = re.search(r"(?is)your\s+listing\s+ref\s*:\s*([A-Za-z0-9\-]+)", full_text)
+        if m_ref:
+            ref_id = m_ref.group(1).strip()
+            # headline = text right after the ref id until end of line
+            # Find the line that contains the ref and take the rest of that line
+            start = m_ref.end()
+            # from start to end-of-line as headline
+            m_head = re.search(r"\s+([^\n]+)", full_text[start:])
+            if m_head:
+                headline = m_head.group(1).strip()
+            # pick the first URL after that position
+            m_url = re.search(r"https?://\S+", full_text[start:])
+            if m_url:
+                listing_url = m_url.group(0).strip()
+
+    # Simple field getter (line-scoped)
+    def get_field(label):
+        m = re.search(rf"{re.escape(label)}:\s*(.+)", full_text)
+        return m.group(1).strip() if m else ''
 
     name = get_field("Name")
     first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
+    # Comments: allow any spacing around the markers so it works after we stripped blank lines
     comments = ''
-    cmt = re.search(r"has received the following message:\s*\n\n(.+?)\n\nName:", full_text, re.DOTALL)
+    cmt = re.search(r"(?is)has received the following message:\s*(.+?)\s*Name\s*:", full_text)
     if cmt:
         comments = cmt.group(1).strip()
     comments = clean_comments_block(comments)
 
     phone = normalize_phone_us_e164(get_field("Tel"))
+    email = get_field("Email")
 
     return {
         "first_name": first_name,
         "last_name": last_name,
-        "email": get_field("Email"),
+        "email": email,
         "phone": phone,
-        "ref_id": ref_id,
+        "ref_id": ref_id,            # ← now captures e.g. 101-24414
         "listing_id": "",
         "headline": headline,
         "contact_zip": "",
@@ -324,6 +353,7 @@ def extract_businessesforsale_text(text_body):
         "services_interested_in": "",
         "heard_about": ""
     }
+
 
 # ==============================
 # ✅ Murphy Business (HTML) — original pattern
