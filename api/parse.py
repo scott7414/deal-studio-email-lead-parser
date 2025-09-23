@@ -693,7 +693,7 @@ def extract_fcbb_html(html_body):
         "State": "state",
         "Postal Code": "contact_zip",
         "Listing Number": "listing_id",
-        "Listing Description": "listing_description",   # ← capture explicit field
+        "Listing Description": "listing_description",
         "Domain": "domain",
         "Originating Website": "originating_website",
         "Current Site Page URL": "current_site_page_url",
@@ -701,6 +701,7 @@ def extract_fcbb_html(html_body):
 
     out = {k: "" for k in set(label_map.values())}
 
+    # --- Standard FCBB format (with <strong> labels in table rows) ---
     for strong in soup.find_all("strong"):
         label_raw = strong.get_text(" ", strip=True).rstrip(":").strip()
         key = label_map.get(label_raw)
@@ -715,6 +716,7 @@ def extract_fcbb_html(html_body):
             if len(tds) >= 2:
                 cell = tds[-1]
                 cell_text = cell.get_text(" ", strip=True)
+
                 if key in ("originating_website", "current_site_page_url"):
                     url = first_http_url(cell_text)
                     if not url:
@@ -741,24 +743,41 @@ def extract_fcbb_html(html_body):
             value = value.rstrip(", ")
         out[key] = (value or "").strip()
 
-    if not out.get("email"):
-        a_mail = soup.find("a", href=lambda h: h and h.lower().startswith("mailto:"))
-        if a_mail:
-            out["email"] = a_mail.get_text(strip=True) or a_mail["href"].split(":", 1)[-1]
-    if not out.get("phone"):
-        a_tel = soup.find("a", href=lambda h: h and h.lower().startswith("tel:"))
-        if a_tel:
-            out["phone"] = a_tel.get_text(strip=True) or a_tel["href"].split(":", 1)[-1]
+    # --- Fallback for stripped-down <p> block format ---
+    if not any(v for k, v in out.items() if k in ("first_name","last_name","listing_id","email","phone")):
+        ps = [p.get_text(" ", strip=True) for p in soup.find_all("p") if p.get_text(strip=True)]
 
+        # Name
+        if ps:
+            parts = ps[0].split(" ", 1)
+            out["first_name"] = parts[0]
+            out["last_name"] = parts[1] if len(parts) > 1 else ""
+
+        # Listing line (ID + headline)
+        if len(ps) > 1:
+            listing_line = ps[1]
+            m = re.match(r"(\d{3}-\d+)\s+(.*)", listing_line)
+            if m:
+                out["listing_id"] = m.group(1)
+                out["listing_description"] = m.group(2)
+
+        # Email
+        mailto = soup.find("a", href=lambda h: h and h.lower().startswith("mailto:"))
+        if mailto:
+            out["email"] = mailto.get_text(strip=True)
+
+        # Phone
+        tel = soup.find("a", href=lambda h: h and h.lower().startswith("tel:"))
+        if tel and tel.get("href"):
+            out["phone"] = normalize_phone_us_e164(tel.get("href").split(":")[-1])
+
+    # --- Normalize ---
     out["phone"] = normalize_phone_us_e164(out.get("phone", ""))
-
-    domain_val = (out.get("domain") or "").strip()
-    if domain_val:
-        out["domain"] = derive_domain(domain_val)
+    if out.get("domain"):
+        out["domain"] = derive_domain(out["domain"])
     else:
         out["domain"] = derive_domain(out.get("originating_website")) or derive_domain(out.get("current_site_page_url"))
 
-    # headline = listing_description (when present)
     headline = out.get("listing_description", "")
 
     return {
@@ -768,8 +787,8 @@ def extract_fcbb_html(html_body):
         "phone": out.get("phone", ""),
         "ref_id": "",
         "listing_id": out.get("listing_id", ""),
-        "headline": headline,                        # keep for compatibility
-        "listing_description": headline,             # new explicit field
+        "headline": headline,
+        "listing_description": headline,
         "address": out.get("address", ""),
         "city": out.get("city", ""),
         "state": out.get("state", ""),
@@ -777,13 +796,14 @@ def extract_fcbb_html(html_body):
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": "",
-        "listing_url": "",  # FCBB stays empty
+        "listing_url": "",
         "originating_website": out.get("originating_website", ""),
         "current_site_page_url": out.get("current_site_page_url", ""),
         "domain": out.get("domain", ""),
         "services_interested_in": "",
         "heard_about": ""
     }
+
 
 # ==============================
 # ✅ FCBB (TEXT) — First Choice Business Brokers (robust)
