@@ -801,8 +801,11 @@ def extract_fcbb_html(html_body):
 # ✅ FCBB (TEXT) — First Choice Business Brokers (robust)
 # ==============================
 def extract_fcbb_text(text_body):
-    txt = re.sub(r'\s+', ' ', text_body.replace("\r", ""))
+    txt = text_body.replace("\r", "")
 
+    # ----------------------------
+    # Try standard label-based FCBB format
+    # ----------------------------
     labels = [
         "Domain", "Listing Number", "Listing Description",
         "First Name", "Last Name", "Email Address", "Phone Number",
@@ -812,49 +815,111 @@ def extract_fcbb_text(text_body):
     pattern = rf"(?P<label>{label_group}):\s*(?P<value>.*?)(?=(?:{label_group}):|$)"
 
     found = {}
-    for m in re.finditer(pattern, txt, flags=re.S):
+    for m in re.finditer(pattern, re.sub(r"\s+", " ", txt), flags=re.S):
         lab = m.group("label")
         val = m.group("value").strip()
         found[lab] = val
 
-    first_name = found.get("First Name", "")
-    last_name  = found.get("Last Name", "")
-    email      = found.get("Email Address", "")
-    phone      = normalize_phone_us_e164(found.get("Phone Number", ""))
-    address    = found.get("Address", "")
-    city       = (found.get("City", "") or "").rstrip(", ")
-    zip_code   = found.get("Postal Code", "")
+    # If label-based parse worked, return structured result
+    if found:
+        first_name = found.get("First Name", "")
+        last_name  = found.get("Last Name", "")
+        email      = found.get("Email Address", "")
+        phone      = normalize_phone_us_e164(found.get("Phone Number", ""))
+        address    = found.get("Address", "")
+        city       = (found.get("City", "") or "").rstrip(", ")
+        zip_code   = found.get("Postal Code", "")
 
-    # ⚡ Listing Number → ref_id (instead of listing_id)
-    ref_id = (found.get("Listing Number", "") or "").strip()
-    ref_id = re.split(r"\s+Listing Description\s*:", ref_id, 1)[0].strip()
+        ref_id = (found.get("Listing Number", "") or "").strip()
+        ref_id = re.split(r"\s+Listing Description\s*:", ref_id, 1)[0].strip()
 
-    headline = found.get("Listing Description", "").strip()
-    originating_website   = first_http_url(found.get("Originating Website", ""))
-    current_site_page_url = first_http_url(found.get("Current Site Page URL", ""))
-    domain_label = found.get("Domain", "")
-    domain = derive_domain(domain_label) or derive_domain(originating_website) or derive_domain(current_site_page_url)
+        headline   = found.get("Listing Description", "").strip()
+        originating_website   = first_http_url(found.get("Originating Website", ""))
+        current_site_page_url = first_http_url(found.get("Current Site Page URL", ""))
+        domain_label = found.get("Domain", "")
+        domain = derive_domain(domain_label) or derive_domain(originating_website) or derive_domain(current_site_page_url)
+
+        return {
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email,
+            "phone": phone,
+            "ref_id": ref_id,
+            "listing_id": "",
+            "headline": headline,
+            "listing_description": headline,
+            "address": address,
+            "city": city,
+            "state": "",
+            "contact_zip": zip_code,
+            "investment_amount": "",
+            "purchase_timeline": "",
+            "comments": "",
+            "listing_url": "",
+            "originating_website": originating_website,
+            "current_site_page_url": current_site_page_url,
+            "domain": domain,
+            "services_interested_in": "",
+            "heard_about": ""
+        }
+
+    # ----------------------------
+    # Fallback: freeform FCBB text (Name, Listing Line, Phone, Email)
+    # ----------------------------
+    lines = [ln.strip() for ln in txt.splitlines() if ln.strip()]
+    out = {
+        "first_name": "",
+        "last_name": "",
+        "email": "",
+        "phone": "",
+        "ref_id": "",
+        "headline": "",
+    }
+
+    if lines:
+        # First line = Name
+        name = lines[0]
+        parts = name.split(" ", 1)
+        out["first_name"] = parts[0]
+        out["last_name"] = parts[1] if len(parts) > 1 else ""
+
+    # Second line = ID + headline
+    if len(lines) > 1:
+        m = re.match(r"(\d{3}-\d+)\s+(.*)", lines[1])
+        if m:
+            out["ref_id"] = m.group(1)
+            out["headline"] = m.group(2)
+
+    # Third line = phone
+    if len(lines) > 2:
+        out["phone"] = normalize_phone_us_e164(lines[2])
+
+    # Fourth line = email
+    if len(lines) > 3:
+        m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", lines[3])
+        if m_email:
+            out["email"] = m_email.group(0)
 
     return {
-        "first_name": first_name,
-        "last_name": last_name,
-        "email": email,
-        "phone": phone,
-        "ref_id": ref_id,                # ⚡ now mapped here
-        "listing_id": "",                # ⚡ explicitly empty
-        "headline": headline,
-        "listing_description": headline,
-        "address": address,
-        "city": city,
+        "first_name": out["first_name"],
+        "last_name": out["last_name"],
+        "email": out["email"],
+        "phone": out["phone"],
+        "ref_id": out["ref_id"],
+        "listing_id": "",
+        "headline": out["headline"],
+        "listing_description": out["headline"],
+        "address": "",
+        "city": "",
         "state": "",
-        "contact_zip": zip_code,
+        "contact_zip": "",
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": "",
-        "listing_url": "",  # FCBB stays empty
-        "originating_website": originating_website,
-        "current_site_page_url": current_site_page_url,
-        "domain": domain,
+        "listing_url": "",
+        "originating_website": "",
+        "current_site_page_url": "",
+        "domain": derive_domain("fcbb.com"),
         "services_interested_in": "",
         "heard_about": ""
     }
