@@ -804,7 +804,7 @@ def extract_fcbb_text(text_body):
     txt = text_body.replace("\r", "")
 
     # ----------------------------
-    # Try standard label-based FCBB format
+    # Try standard label-based FCBB format first
     # ----------------------------
     labels = [
         "Domain", "Listing Number", "Listing Description",
@@ -820,8 +820,7 @@ def extract_fcbb_text(text_body):
         val = m.group("value").strip()
         found[lab] = val
 
-    # If label-based parse worked, return structured result
-    if found:
+    if found:  # ✅ Structured label-based parse
         first_name = found.get("First Name", "")
         last_name  = found.get("Last Name", "")
         email      = found.get("Email Address", "")
@@ -864,41 +863,52 @@ def extract_fcbb_text(text_body):
         }
 
     # ----------------------------
-    # Fallback: freeform FCBB text (Name, Listing Line, Phone, Email)
+    # Fallback: freeform "alternate" FCBB text
     # ----------------------------
     lines = [ln.strip() for ln in txt.splitlines() if ln.strip()]
-    out = {
-        "first_name": "",
-        "last_name": "",
-        "email": "",
-        "phone": "",
-        "ref_id": "",
-        "headline": "",
-    }
 
-    if lines:
-        # First line = Name
-        name = lines[0]
+    # 🚫 Filter out noise (image links, tracking pixels, disclaimers)
+    noise_patterns = [
+        r"^\[https?://",       # square-bracketed URLs
+        r"^First Choice Business Brokers", 
+        r"© 20\d{2} First Choice",
+        r"^Alert -",            # NDA alerts
+    ]
+    clean_lines = []
+    for ln in lines:
+        if any(re.match(pat, ln, re.I) for pat in noise_patterns):
+            continue
+        clean_lines.append(ln)
+
+    out = {"first_name": "", "last_name": "", "email": "", "phone": "", "ref_id": "", "headline": ""}
+
+    if clean_lines:
+        # Name
+        name = clean_lines[0]
         parts = name.split(" ", 1)
         out["first_name"] = parts[0]
         out["last_name"] = parts[1] if len(parts) > 1 else ""
 
-    # Second line = ID + headline
-    if len(lines) > 1:
-        m = re.match(r"(\d{3}-\d+)\s+(.*)", lines[1])
+    # ID + headline
+    for ln in clean_lines[1:]:
+        m = re.match(r"(\d{3}-\d+)\s+(.*)", ln)
         if m:
             out["ref_id"] = m.group(1)
             out["headline"] = m.group(2)
+            break
 
-    # Third line = phone
-    if len(lines) > 2:
-        out["phone"] = normalize_phone_us_e164(lines[2])
+    # Phone
+    for ln in clean_lines:
+        if re.search(r"\d{3}[-)\s]\d{3}", ln):  # crude phone pattern
+            out["phone"] = normalize_phone_us_e164(ln)
+            break
 
-    # Fourth line = email
-    if len(lines) > 3:
-        m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", lines[3])
+    # Email
+    for ln in clean_lines:
+        m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", ln)
         if m_email:
             out["email"] = m_email.group(0)
+            break
 
     return {
         "first_name": out["first_name"],
@@ -919,11 +929,10 @@ def extract_fcbb_text(text_body):
         "listing_url": "",
         "originating_website": "",
         "current_site_page_url": "",
-        "domain": derive_domain("fcbb.com"),
+        "domain": "fcbb.com",   # default fallback
         "services_interested_in": "",
         "heard_about": ""
     }
-
 
 # ==============================
 # ✅ Mapper to unified nested schema
