@@ -195,39 +195,37 @@ def extract_dealstream_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
     text = soup.get_text("\n")
 
-    # Name (appears right after "Hello X")
-    m_hello = re.search(r"Hello\s+([A-Za-z]+(?:\s+[A-Za-z]+)*)", text, re.I)
-    name = m_hello.group(1).strip() if m_hello else ""
-    first_name, last_name = (name.split(" ", 1) if " " in name else (name, ""))
-
-    # Broker info block
-    broker_block = ""
-    m_broker = re.search(r"here is their information.*?(Kevin.+?)(?=Please reference|What To Expect)", text, re.S | re.I)
+    # Broker name (bold line before "Broker,")
+    broker_name = ""
+    m_broker = re.search(r"\n([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)+)\s*\nBroker", text, re.I)
     if m_broker:
-        broker_block = m_broker.group(1)
+        broker_name = m_broker.group(1).strip()
+    first_name, last_name = (broker_name.split(" ", 1) if " " in broker_name else (broker_name, ""))
 
     # Email
-    m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", broker_block)
+    m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", text)
     email = m_email.group(0).strip() if m_email else ""
 
     # Phone
-    m_phone = re.search(r"(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}", broker_block)
+    m_phone = re.search(r"(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}", text)
     phone = normalize_phone_us_e164(m_phone.group(0)) if m_phone else ""
 
-    # Location
-    m_loc = re.search(r"Location:\s*([^\n]+)", broker_block, re.I)
-    location = m_loc.group(1).strip() if m_loc else ""
+    # Reference Number & Message ID
+    ref_id = ""
+    m_ref = re.search(r"Reference Number:\s*(\S+)", text, re.I)
+    if m_ref:
+        ref_id = m_ref.group(1).strip()
 
-    # Listing, ref_id, message id
-    listing_id = ""
+    message_id = ""
+    m_msg = re.search(r"Message ID:\s*(\S+)", text, re.I)
+    if m_msg:
+        message_id = m_msg.group(1).strip()
+
+    # Headline (after Listing:)
     headline = ""
     m_listing = re.search(r"Listing:\s*(.+)", text, re.I)
     if m_listing:
         headline = m_listing.group(1).strip()
-    m_ref = re.search(r"Reference Number:\s*(\S+)", text, re.I)
-    ref_id = m_ref.group(1).strip() if m_ref else ""
-    m_msg = re.search(r"Message ID:\s*(\S+)", text, re.I)
-    message_id = m_msg.group(1).strip() if m_msg else ""
 
     return {
         "first_name": first_name,
@@ -235,7 +233,7 @@ def extract_dealstream_html(html_body):
         "email": email,
         "phone": phone,
         "ref_id": ref_id or message_id,
-        "listing_id": listing_id,
+        "listing_id": "",
         "headline": headline,
         "address": "",
         "city": "",
@@ -256,10 +254,12 @@ def extract_dealstream_html(html_body):
 def extract_dealstream_text(text_body):
     txt = text_body.replace("\r", "")
 
-    # Name
-    m_hello = re.search(r"Hello\s+([A-Za-z]+(?:\s+[A-Za-z]+)*)", txt, re.I)
-    name = m_hello.group(1).strip() if m_hello else ""
-    first_name, last_name = (name.split(" ", 1) if " " in name else (name, ""))
+    # Broker name
+    broker_name = ""
+    m_broker = re.search(r"\n([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)+)\s*\nBroker", txt, re.I)
+    if m_broker:
+        broker_name = m_broker.group(1).strip()
+    first_name, last_name = (broker_name.split(" ", 1) if " " in broker_name else (broker_name, ""))
 
     # Email
     m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", txt)
@@ -269,25 +269,23 @@ def extract_dealstream_text(text_body):
     m_phone = re.search(r"(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}", txt)
     phone = normalize_phone_us_e164(m_phone.group(0)) if m_phone else ""
 
-    # Location
-    m_loc = re.search(r"Location:\s*([^\n]+)", txt, re.I)
-    location = m_loc.group(1).strip() if m_loc else ""
-
-    # Listing & IDs
-    headline = ""
-    m_listing = re.search(r"Listing:\s*(.+)", txt, re.I)
-    if m_listing:
-        headline = m_listing.group(1).strip()
-
+    # Reference Number
     ref_id = ""
     m_ref = re.search(r"Reference Number:\s*(\S+)", txt, re.I)
     if m_ref:
         ref_id = m_ref.group(1).strip()
 
+    # Message ID
     message_id = ""
     m_msg = re.search(r"Message ID:\s*(\S+)", txt, re.I)
     if m_msg:
         message_id = m_msg.group(1).strip()
+
+    # Headline
+    headline = ""
+    m_listing = re.search(r"Listing:\s*(.+)", txt, re.I)
+    if m_listing:
+        headline = m_listing.group(1).strip()
 
     return {
         "first_name": first_name,
