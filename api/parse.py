@@ -195,14 +195,12 @@ def extract_dealstream_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
     text = soup.get_text("\n")
 
-    # Broker name (bold line before "Broker,")
-    broker_name = ""
-    m_broker = re.search(r"\n([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)+)\s*\nBroker", text, re.I)
-    if m_broker:
-        broker_name = m_broker.group(1).strip()
-    first_name, last_name = (broker_name.split(" ", 1) if " " in broker_name else (broker_name, ""))
+    # Lead name (first Hello line)
+    m_hello = re.search(r"Hello\s+([^,]+)", text, re.I)
+    lead_name = m_hello.group(1).strip() if m_hello else ""
+    first_name, last_name = (lead_name.split(" ", 1) if " " in lead_name else (lead_name, ""))
 
-    # Email
+    # Email (strip mailto tail if present)
     m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", text)
     email = m_email.group(0).strip() if m_email else ""
 
@@ -212,22 +210,28 @@ def extract_dealstream_html(html_body):
 
     # Reference Number & Message ID
     ref_id = ""
-    m_ref = re.search(r"Reference Number:\s*(\S+)", text, re.I)
+    m_ref = re.search(r"Reference Number:\s*([0-9\-]+)", text, re.I)
     if m_ref:
         ref_id = m_ref.group(1).strip()
 
     message_id = ""
-    m_msg = re.search(r"Message ID:\s*(\S+)", text, re.I)
+    m_msg = re.search(r"Message ID:\s*([0-9\-]+)", text, re.I)
     if m_msg:
         message_id = m_msg.group(1).strip()
 
-    # Headline (after Listing:)
+    # Headline and optional URL
     headline = ""
+    listing_url = ""
     m_listing = re.search(r"Listing:\s*(.+)", text, re.I)
     if m_listing:
         headline = m_listing.group(1).strip()
+        m_url = re.search(r"https?://\S+", headline)
+        if m_url:
+            listing_url = m_url.group(0)
+            headline = headline.replace(listing_url, "").strip(" -")
 
     return {
+        "source": "dealstream",
         "first_name": first_name,
         "last_name": last_name,
         "email": email,
@@ -235,6 +239,7 @@ def extract_dealstream_html(html_body):
         "ref_id": ref_id or message_id,
         "listing_id": "",
         "headline": headline,
+        "listing_url": listing_url,
         "address": "",
         "city": "",
         "state": "",
@@ -243,7 +248,6 @@ def extract_dealstream_html(html_body):
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": "",
-        "listing_url": "",
         "services_interested_in": "",
         "heard_about": ""
     }
@@ -254,12 +258,10 @@ def extract_dealstream_html(html_body):
 def extract_dealstream_text(text_body):
     txt = text_body.replace("\r", "")
 
-    # Broker name
-    broker_name = ""
-    m_broker = re.search(r"\n([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)+)\s*\nBroker", txt, re.I)
-    if m_broker:
-        broker_name = m_broker.group(1).strip()
-    first_name, last_name = (broker_name.split(" ", 1) if " " in broker_name else (broker_name, ""))
+    # Lead name (first Hello line)
+    m_hello = re.search(r"Hello\s+([^,]+)", txt, re.I)
+    lead_name = m_hello.group(1).strip() if m_hello else ""
+    first_name, last_name = (lead_name.split(" ", 1) if " " in lead_name else (lead_name, ""))
 
     # Email
     m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", txt)
@@ -271,23 +273,29 @@ def extract_dealstream_text(text_body):
 
     # Reference Number
     ref_id = ""
-    m_ref = re.search(r"Reference Number:\s*(\S+)", txt, re.I)
+    m_ref = re.search(r"Reference Number:\s*([0-9\-]+)", txt, re.I)
     if m_ref:
         ref_id = m_ref.group(1).strip()
 
     # Message ID
     message_id = ""
-    m_msg = re.search(r"Message ID:\s*(\S+)", txt, re.I)
+    m_msg = re.search(r"Message ID:\s*([0-9\-]+)", txt, re.I)
     if m_msg:
         message_id = m_msg.group(1).strip()
 
-    # Headline
+    # Headline & URL
     headline = ""
+    listing_url = ""
     m_listing = re.search(r"Listing:\s*(.+)", txt, re.I)
     if m_listing:
         headline = m_listing.group(1).strip()
+        m_url = re.search(r"https?://\S+", headline)
+        if m_url:
+            listing_url = m_url.group(0)
+            headline = headline.replace(listing_url, "").strip(" -")
 
     return {
+        "source": "dealstream",
         "first_name": first_name,
         "last_name": last_name,
         "email": email,
@@ -295,6 +303,7 @@ def extract_dealstream_text(text_body):
         "ref_id": ref_id or message_id,
         "listing_id": "",
         "headline": headline,
+        "listing_url": listing_url,
         "address": "",
         "city": "",
         "state": "",
@@ -303,10 +312,10 @@ def extract_dealstream_text(text_body):
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": "",
-        "listing_url": "",
         "services_interested_in": "",
         "heard_about": ""
     }
+
 
 
 
