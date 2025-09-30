@@ -195,14 +195,17 @@ def extract_dealstream_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
     text = soup.get_text("\n")
 
-    # Lead name — prefer line after "Thank you for your inquiry"
-    m_ty = re.search(r"Thank you for your inquiry.*?\n+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)", text, re.I | re.S)
+    # Lead name — prefer the first line after "Thank you for your inquiry"
+    m_ty = re.search(r"Thank you for your inquiry.*?\n+([^\n\r]+)", text, re.I | re.S)
     if m_ty:
         lead_name = m_ty.group(1).strip()
     else:
         m_hello = re.search(r"Hello\s+([^,]+),", text, re.I)
         lead_name = m_hello.group(1).strip() if m_hello else ""
-    first_name, last_name = (lead_name.split(" ", 1) if " " in lead_name else (lead_name, ""))
+    # Split only on the first space
+    parts = lead_name.split(None, 1)
+    first_name = parts[0] if parts else ""
+    last_name = parts[1] if len(parts) > 1 else ""
 
     # Email (strip out any trailing <mailto:...>)
     m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", text)
@@ -234,14 +237,17 @@ def extract_dealstream_html(html_body):
 def extract_dealstream_text(text_body):
     txt = text_body.replace("\r", "")
 
-    # Lead name — prefer after "Thank you for your inquiry"
-    m_ty = re.search(r"Thank you for your inquiry.*?\n+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)", txt, re.I | re.S)
+    # Lead name — prefer the first line after "Thank you for your inquiry"
+    m_ty = re.search(r"Thank you for your inquiry.*?\n+([^\n\r]+)", txt, re.I | re.S)
     if m_ty:
         lead_name = m_ty.group(1).strip()
     else:
         m_hello = re.search(r"Hello\s+([^,]+),", txt, re.I)
         lead_name = m_hello.group(1).strip() if m_hello else ""
-    first_name, last_name = (lead_name.split(" ", 1) if " " in lead_name else (lead_name, ""))
+    # Split only on the first space
+    parts = lead_name.split(None, 1)
+    first_name = parts[0] if parts else ""
+    last_name = parts[1] if len(parts) > 1 else ""
 
     # Email (strip out any trailing <mailto:...>)
     m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", txt)
