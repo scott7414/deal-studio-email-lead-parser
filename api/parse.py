@@ -195,12 +195,16 @@ def extract_dealstream_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
     text = soup.get_text("\n")
 
-    # Lead name
-    m_hello = re.search(r"Hello\s+([^,]+),", text, re.I)
-    lead_name = m_hello.group(1).strip() if m_hello else ""
+    # Lead name — prefer line after "Thank you for your inquiry"
+    m_ty = re.search(r"Thank you for your inquiry.*?\n+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)", text, re.I | re.S)
+    if m_ty:
+        lead_name = m_ty.group(1).strip()
+    else:
+        m_hello = re.search(r"Hello\s+([^,]+),", text, re.I)
+        lead_name = m_hello.group(1).strip() if m_hello else ""
     first_name, last_name = (lead_name.split(" ", 1) if " " in lead_name else (lead_name, ""))
 
-    # Email
+    # Email (strip out any trailing <mailto:...>)
     m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", text)
     email = m_email.group(0).strip() if m_email else ""
 
@@ -230,12 +234,16 @@ def extract_dealstream_html(html_body):
 def extract_dealstream_text(text_body):
     txt = text_body.replace("\r", "")
 
-    # Lead name
-    m_hello = re.search(r"Hello\s+([^,]+),", txt, re.I)
-    lead_name = m_hello.group(1).strip() if m_hello else ""
+    # Lead name — prefer after "Thank you for your inquiry"
+    m_ty = re.search(r"Thank you for your inquiry.*?\n+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)", txt, re.I | re.S)
+    if m_ty:
+        lead_name = m_ty.group(1).strip()
+    else:
+        m_hello = re.search(r"Hello\s+([^,]+),", txt, re.I)
+        lead_name = m_hello.group(1).strip() if m_hello else ""
     first_name, last_name = (lead_name.split(" ", 1) if " " in lead_name else (lead_name, ""))
 
-    # Email
+    # Email (strip out any trailing <mailto:...>)
     m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", txt)
     email = m_email.group(0).strip() if m_email else ""
 
