@@ -237,13 +237,13 @@ def extract_dealstream_html(html_body):
 def extract_dealstream_text(text_body):
     txt = text_body.replace("\r", "")
 
-    # Lead name — prefer the first line after "Thank you for your inquiry"
+    # Lead name — take the line directly after "Thank you for your inquiry"
     m_ty = re.search(r"Thank you for your inquiry.*?\n+([^\n\r]+)", txt, re.I | re.S)
-    if m_ty:
-        lead_name = m_ty.group(1).strip()
-    else:
-        m_hello = re.search(r"Hello\s+([^,]+),", txt, re.I)
-        lead_name = m_hello.group(1).strip() if m_hello else ""
+    lead_name = m_ty.group(1).strip() if m_ty else ""
+
+    # Remove trailing broker/agent noise if accidentally included
+    lead_name = re.sub(r"\b(Broker|Agent|Owner).*$", "", lead_name, flags=re.I).strip()
+
     # Split only on the first space
     parts = lead_name.split(None, 1)
     first_name = parts[0] if parts else ""
@@ -271,6 +271,7 @@ def extract_dealstream_text(text_body):
         "headline": "",
         "listing_url": ""
     }
+
 
 
 # ==============================
