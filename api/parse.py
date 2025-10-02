@@ -280,62 +280,68 @@ def extract_dealstream_text(text_body):
 def extract_bizbuysell_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
-    # Headline
+    # Headline (bold title at the top)
     headline = ''
     for b in soup.find_all('b'):
         text = b.get_text(strip=True)
-        if text.lower() != "from:" and len(text) > 10:
+        if text and text.lower() not in ("from:", "contact name", "contact email", "contact phone"):
             headline = text
             break
 
     # Contact name
-    name_tag = soup.find('b', string=re.compile('Contact Name'))
-    name = name_tag.find_next('span').get_text(strip=True) if name_tag else ''
+    name = ''
+    name_tag = soup.find('b', string=lambda s: s and 'contact name' in s.lower())
+    if name_tag:
+        span = name_tag.find_next('span')
+        if span:
+            name = span.get_text(strip=True)
+    if not name:
+        # fallback: regex search in text
+        m = re.search(r'Contact Name.*?:\s*([A-Za-z ]+)', soup.get_text(" "), re.I)
+        if m:
+            name = m.group(1).strip()
     first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
     # Email
-    email_tag = soup.find('b', string=re.compile('Contact Email'))
-    email = email_tag.find_next('span').get_text(strip=True) if email_tag else ''
+    email = ''
+    email_tag = soup.find('b', string=lambda s: s and 'contact email' in s.lower())
+    if email_tag:
+        span = email_tag.find_next('span')
+        if span:
+            email = span.get_text(strip=True)
 
-    # Phone (E.164)
-    phone_tag = soup.find('b', string=re.compile('Contact Phone'))
-    phone_raw = phone_tag.find_next('span').get_text(strip=True) if phone_tag else ''
-    phone = normalize_phone_us_e164(phone_raw)
+    # Phone
+    phone = ''
+    phone_tag = soup.find('b', string=lambda s: s and 'contact phone' in s.lower())
+    if phone_tag:
+        span = phone_tag.find_next('span')
+        if span:
+            phone = normalize_phone_us_e164(span.get_text(strip=True))
 
     # Ref ID
     ref_id = ''
-    ref_id_match = soup.find(string=re.compile('Ref ID'))
-    if ref_id_match:
-        m = re.search(r'Ref ID:\s*([A-Za-z0-9\-\_]+)', ref_id_match)
+    ref_id_tag = soup.find('span', string=re.compile('Ref ID', re.I))
+    if ref_id_tag:
+        text = ref_id_tag.parent.get_text(" ", strip=True)
+        m = re.search(r'Ref ID:\s*([A-Za-z0-9\-]+)', text)
         if m:
-            ref_id = m.group(1).strip()
-        else:
-            nxt = ref_id_match.find_next(string=True)
-            if nxt:
-                m2 = re.search(r'([A-Za-z0-9\-\_]+)', nxt)
-                if m2:
-                    ref_id = m2.group(1).strip()
+            ref_id = m.group(1)
 
     # Listing ID
     listing_id = ''
-    for span in soup.find_all('span'):
-        if 'Listing ID:' in span.get_text():
-            a = span.find_next('a')
-            if a:
-                listing_id = a.get_text(strip=True)
-                break
+    listing_id_tag = soup.find('span', string=re.compile('Listing ID', re.I))
+    if listing_id_tag:
+        a = listing_id_tag.find_next('a')
+        if a:
+            listing_id = a.get_text(strip=True)
 
-    # Optional fields
+    # Other optional fields
     def extract_optional(label):
-        try:
-            tag = soup.find('b', string=re.compile(label))
-            if tag:
-                span = tag.find_next('span')
-                if span:
-                    return span.get_text(strip=True)
-            return ''
-        except:
-            return ''
+        tag = soup.find('b', string=lambda s: s and label.lower() in s.lower())
+        if tag:
+            span = tag.find_next('span')
+            return span.get_text(strip=True) if span else ''
+        return ''
 
     contact_zip = extract_optional('Contact Zip')
     investment_amount = extract_optional('Able to Invest')
@@ -359,6 +365,7 @@ def extract_bizbuysell_html(html_body):
         "services_interested_in": "",
         "heard_about": ""
     }
+
 
 # ==============================
 # ✅ BizBuySell (TEXT) — original pattern
