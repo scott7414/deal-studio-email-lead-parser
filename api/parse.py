@@ -291,39 +291,44 @@ def extract_bizbuysell_html(html_body):
                 break
 
     def get_field(label):
-        # Look for <span> with the label
+        # Look for <span> with this label
         stag = soup.find("span", string=lambda s: s and label.lower() in s.lower())
         if stag:
-            nxt = stag.find_next_sibling()
-            if nxt and nxt.name == "a":
+            # --- Listing ID special case: always inside an <a>
+            if label.lower() == "listing id":
+                link = stag.find_next("a")
+                if link:
+                    return link.get_text(strip=True)
+
+            # --- Ref ID special case: plain text sibling
+            if label.lower() == "ref id":
+                sib = stag.next_sibling
+                if sib:
+                    return str(sib).strip().lstrip(":").strip()
+
+            # --- Generic case: use the next <span>
+            nxt = stag.find_next("span")
+            if nxt:
                 return nxt.get_text(strip=True)
-            if nxt and isinstance(nxt, str):
-                return nxt.strip()
+
+            # Fallback: text of parent td minus label
             td = stag.find_parent("td")
             if td:
                 raw = td.get_text(" ", strip=True)
                 return re.sub(rf"{label}\s*:", "", raw, flags=re.I).strip()
 
-        # --- Ref ID special case
-        if label.lower() == "ref id":
-            m = re.search(r"Ref ID:\s*([A-Za-z0-9\-]+)", text_content, re.I)
-            return m.group(1).strip() if m else ""
-
-        # --- Listing ID special case
-        if label.lower() == "listing id":
-            m = re.search(r"Listing ID:\s*(\d+)", text_content, re.I)
-            return m.group(1).strip() if m else ""
-
-        # General fallback
+        # Final fallback: regex on full text
         m = re.search(rf"{label}\s*:\s*([^\n\r]+)", text_content, re.I)
         return m.group(1).strip() if m else ""
 
-    # Contact
+    # Contact fields
     name = get_field("Contact Name")
     first_name, last_name = name.split(" ", 1) if " " in name else (name, "")
+
     email = get_field("Contact Email")
     m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", email)
     email = m_email.group(0) if m_email else email
+
     phone = normalize_phone_us_e164(get_field("Contact Phone"))
 
     # IDs
