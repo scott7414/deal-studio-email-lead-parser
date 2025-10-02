@@ -279,7 +279,6 @@ def extract_dealstream_text(text_body):
 # ==============================
 def extract_bizbuysell_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
-
     text_content = soup.get_text(" ", strip=True)
 
     # --- Headline (first bold line that isn’t a field label)
@@ -299,6 +298,10 @@ def extract_bizbuysell_html(html_body):
             span = btag.find_next("span")
             if span:
                 return span.get_text(strip=True)
+            # Sometimes it's inside <a>
+            a = btag.find_next("a")
+            if a:
+                return a.get_text(strip=True)
             # Fallback: text of parent <td> minus the label
             td = btag.find_parent("td")
             if td:
@@ -319,13 +322,20 @@ def extract_bizbuysell_html(html_body):
     phone_raw = get_field("Contact Phone")
     phone = normalize_phone_us_e164(phone_raw)
 
+    # --- Listing + Ref ID fixes
     ref_id = get_field("Ref ID")
     listing_id = get_field("Listing ID")
-    if listing_id:
-        # Extract numeric only if extra text exists
-        m = re.search(r"\d+", listing_id)
+
+    # If still blank, search soup text directly
+    if not listing_id:
+        m = re.search(r"Listing ID[:\s]+(\d+)", text_content, re.I)
         if m:
-            listing_id = m.group(0)
+            listing_id = m.group(1)
+
+    if not ref_id:
+        m = re.search(r"Ref ID[:\s]+([A-Za-z0-9\-]+)", text_content, re.I)
+        if m:
+            ref_id = m.group(1)
 
     contact_zip = get_field("Contact Zip")
     investment_amount = get_field("Able to Invest")
@@ -349,6 +359,7 @@ def extract_bizbuysell_html(html_body):
         "services_interested_in": "",
         "heard_about": ""
     }
+
 
 
 # ==============================
