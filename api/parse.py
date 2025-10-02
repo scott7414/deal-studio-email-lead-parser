@@ -292,23 +292,24 @@ def extract_bizbuysell_html(html_body):
 
     # --- Robust field extractor
     def get_field(label):
-        # Try label <b> → <span>
-        btag = soup.find("b", string=lambda s: s and label.lower() in s.lower())
-        if btag:
-            span = btag.find_next("span")
-            if span:
-                return span.get_text(strip=True)
-            # Sometimes it's inside <a>
-            a = btag.find_next("a")
-            if a:
-                return a.get_text(strip=True)
-            # Fallback: text of parent <td> minus the label
-            td = btag.find_parent("td")
+        # Look for <span> with the label
+        stag = soup.find("span", string=lambda s: s and label.lower() in s.lower())
+        if stag:
+            # If the very next sibling is <a>, grab its text
+            nxt = stag.find_next_sibling()
+            if nxt and nxt.name == "a":
+                return nxt.get_text(strip=True)
+            # Otherwise, if it's text directly after <span>, grab that
+            if nxt and isinstance(nxt, str):
+                return nxt.strip()
+            # Or grab text from span parent
+            td = stag.find_parent("td")
             if td:
                 raw = td.get_text(" ", strip=True)
                 return re.sub(rf"{label}\s*:", "", raw, flags=re.I).strip()
-        # Last fallback: regex on full text
-        m = re.search(rf"{label}\s*:\s*([^\n\r]+)", text_content, re.I)
+
+        # Fallback: regex on flattened text
+        m = re.search(rf"{label}\s*:\s*([^\s<]+)", text_content, re.I)
         return m.group(1).strip() if m else ""
 
     # --- Contact fields
@@ -322,20 +323,9 @@ def extract_bizbuysell_html(html_body):
     phone_raw = get_field("Contact Phone")
     phone = normalize_phone_us_e164(phone_raw)
 
-    # --- Listing + Ref ID fixes
-    ref_id = get_field("Ref ID")
+    # --- Listing + Ref ID
     listing_id = get_field("Listing ID")
-
-    # If still blank, search soup text directly
-    if not listing_id:
-        m = re.search(r"Listing ID[:\s]+(\d+)", text_content, re.I)
-        if m:
-            listing_id = m.group(1)
-
-    if not ref_id:
-        m = re.search(r"Ref ID[:\s]+([A-Za-z0-9\-]+)", text_content, re.I)
-        if m:
-            ref_id = m.group(1)
+    ref_id = get_field("Ref ID")
 
     contact_zip = get_field("Contact Zip")
     investment_amount = get_field("Able to Invest")
@@ -359,7 +349,6 @@ def extract_bizbuysell_html(html_body):
         "services_interested_in": "",
         "heard_about": ""
     }
-
 
 
 # ==============================
