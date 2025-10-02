@@ -280,73 +280,57 @@ def extract_dealstream_text(text_body):
 def extract_bizbuysell_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
 
-    # Headline (bold title at the top)
-    headline = ''
-    for b in soup.find_all('b'):
-        text = b.get_text(strip=True)
-        if text and text.lower() not in ("from:", "contact name", "contact email", "contact phone"):
-            headline = text
-            break
+    text_content = soup.get_text(" ", strip=True)
 
-    # Contact name
-    name = ''
-    name_tag = soup.find('b', string=lambda s: s and 'contact name' in s.lower())
-    if name_tag:
-        span = name_tag.find_next('span')
-        if span:
-            name = span.get_text(strip=True)
-    if not name:
-        # fallback: regex search in text
-        m = re.search(r'Contact Name.*?:\s*([A-Za-z ]+)', soup.get_text(" "), re.I)
+    # --- Headline (first bold line that isn’t a field label)
+    headline = ""
+    for b in soup.find_all("b"):
+        t = b.get_text(strip=True)
+        if t and not re.search(r"^contact\s+", t, re.I):
+            if len(t) > 8:  # avoid "From:" etc.
+                headline = t
+                break
+
+    # --- Robust field extractor
+    def get_field(label):
+        # Try label <b> → <span>
+        btag = soup.find("b", string=lambda s: s and label.lower() in s.lower())
+        if btag:
+            span = btag.find_next("span")
+            if span:
+                return span.get_text(strip=True)
+            # Fallback: text of parent <td> minus the label
+            td = btag.find_parent("td")
+            if td:
+                raw = td.get_text(" ", strip=True)
+                return re.sub(rf"{label}\s*:", "", raw, flags=re.I).strip()
+        # Last fallback: regex on full text
+        m = re.search(rf"{label}\s*:\s*([^\n\r]+)", text_content, re.I)
+        return m.group(1).strip() if m else ""
+
+    # --- Contact fields
+    name = get_field("Contact Name")
+    first_name, last_name = name.split(" ", 1) if " " in name else (name, "")
+
+    email = get_field("Contact Email")
+    m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", email)
+    email = m_email.group(0) if m_email else email
+
+    phone_raw = get_field("Contact Phone")
+    phone = normalize_phone_us_e164(phone_raw)
+
+    ref_id = get_field("Ref ID")
+    listing_id = get_field("Listing ID")
+    if listing_id:
+        # Extract numeric only if extra text exists
+        m = re.search(r"\d+", listing_id)
         if m:
-            name = m.group(1).strip()
-    first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
+            listing_id = m.group(0)
 
-    # Email
-    email = ''
-    email_tag = soup.find('b', string=lambda s: s and 'contact email' in s.lower())
-    if email_tag:
-        span = email_tag.find_next('span')
-        if span:
-            email = span.get_text(strip=True)
-
-    # Phone
-    phone = ''
-    phone_tag = soup.find('b', string=lambda s: s and 'contact phone' in s.lower())
-    if phone_tag:
-        span = phone_tag.find_next('span')
-        if span:
-            phone = normalize_phone_us_e164(span.get_text(strip=True))
-
-    # Ref ID
-    ref_id = ''
-    ref_id_tag = soup.find('span', string=re.compile('Ref ID', re.I))
-    if ref_id_tag:
-        text = ref_id_tag.parent.get_text(" ", strip=True)
-        m = re.search(r'Ref ID:\s*([A-Za-z0-9\-]+)', text)
-        if m:
-            ref_id = m.group(1)
-
-    # Listing ID
-    listing_id = ''
-    listing_id_tag = soup.find('span', string=re.compile('Listing ID', re.I))
-    if listing_id_tag:
-        a = listing_id_tag.find_next('a')
-        if a:
-            listing_id = a.get_text(strip=True)
-
-    # Other optional fields
-    def extract_optional(label):
-        tag = soup.find('b', string=lambda s: s and label.lower() in s.lower())
-        if tag:
-            span = tag.find_next('span')
-            return span.get_text(strip=True) if span else ''
-        return ''
-
-    contact_zip = extract_optional('Contact Zip')
-    investment_amount = extract_optional('Able to Invest')
-    purchase_timeline = extract_optional('Purchase Within')
-    comments = extract_optional('Comments')
+    contact_zip = get_field("Contact Zip")
+    investment_amount = get_field("Able to Invest")
+    purchase_timeline = get_field("Purchase Within")
+    comments = get_field("Comments")
     comments = clean_comments_block(comments)
 
     return {
