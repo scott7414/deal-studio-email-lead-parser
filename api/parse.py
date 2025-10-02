@@ -1081,47 +1081,45 @@ def parse_email():
     is_html = ("<html" in lowered) or ("<body" in lowered) or ("<div" in lowered)
 
     try:
-        # FCBB
+        # --- FCBB ---
         if "fcbb.com" in lowered or "oms.fcbb.com" in lowered or "first choice business brokers" in lowered:
-            # ... unchanged ...
-            pass
+            flat = extract_fcbb_html(body) if is_html else extract_fcbb_text(body)
+            return jsonify(to_nested("fcbb", flat))
 
-        # BizBuySell
-        if "bizbuysell" in lowered:
-            # ... unchanged ...
-            pass
+        # --- BizBuySell ---
+        elif "bizbuysell" in lowered:
+            flat = extract_bizbuysell_html(body) if is_html else extract_bizbuysell_text(body)
+            return jsonify(to_nested("bizbuysell", flat))
 
-        # BusinessesForSale
-        if "businessesforsale.com" in lowered or "businesses for sale" in lowered:
-            # ... unchanged ...
-            pass
+        # --- BusinessesForSale ---
+        elif "businessesforsale.com" in lowered or "businesses for sale" in lowered:
+            flat = extract_businessesforsale_text(
+                body if not is_html else BeautifulSoup(body, "html.parser").get_text("\n")
+            )
+            return jsonify(to_nested("businessesforsale", flat))
 
-        # ✅ DealStream
-        if "dealstream" in lowered or "leads.dealstream.com" in lowered:
-            try:
-                flat = extract_dealstream_html(body) if is_html else extract_dealstream_text(body)
-                return jsonify(to_nested("dealstream", flat))
-            except Exception as e:
-                try:
-                    text = BeautifulSoup(body, "html.parser").get_text("\n")
-                    flat = extract_dealstream_text(text)
-                    return jsonify(to_nested("dealstream", flat, f"fallback_text_ok: {e}"))
-                except Exception as e2:
-                    return jsonify(to_nested("dealstream", {}, f"parse_failed: {e}; fallback_failed: {e2}"))
+        # --- DealStream ---
+        elif "dealstream" in lowered or "leads.dealstream.com" in lowered:
+            flat = extract_dealstream_html(body) if is_html else extract_dealstream_text(body)
+            return jsonify(to_nested("dealstream", flat))
 
-        # MurphyBusiness
-        if "murphybusiness.com" in lowered or "murphy business" in lowered:
-            # ... unchanged ...
-            pass
+        # --- Murphy Business ---
+        elif "murphybusiness.com" in lowered or "murphy business" in lowered:
+            flat = extract_murphy_html(body) if is_html else extract_murphy_text(body)
+            return jsonify(to_nested("murphybusiness", flat))
 
-        # BusinessBroker.net
-        if "businessbroker.net" in lowered:
-            # ... unchanged ...
-            pass
+        # --- BusinessBroker.net ---
+        elif "businessbroker.net" in lowered:
+            flat = extract_businessbroker_html(body) if is_html else extract_businessbroker_text(body)
+            return jsonify(to_nested("businessbroker", flat))
 
-        return jsonify(to_nested("unknown", {}))
+        # --- Unknown ---
+        else:
+            return jsonify(to_nested("unknown", {}))
+
     except Exception as outer:
         return jsonify(to_nested("unknown", {}, f"router_error: {outer}"))
+
 
 @app.route("/health", methods=["GET"])
 def health():
