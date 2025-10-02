@@ -286,52 +286,49 @@ def extract_bizbuysell_html(html_body):
     for b in soup.find_all("b"):
         t = b.get_text(strip=True)
         if t and not re.search(r"^contact\s+", t, re.I):
-            if len(t) > 8:  # avoid "From:" etc.
+            if len(t) > 8:
                 headline = t
                 break
 
-    # --- Robust field extractor
     def get_field(label):
         # Look for <span> with the label
         stag = soup.find("span", string=lambda s: s and label.lower() in s.lower())
         if stag:
-            # If the very next sibling is <a>, grab its text
             nxt = stag.find_next_sibling()
             if nxt and nxt.name == "a":
                 return nxt.get_text(strip=True)
-            # Otherwise, if it's text directly after <span>, grab that
             if nxt and isinstance(nxt, str):
                 return nxt.strip()
-            # Or grab text from span parent
             td = stag.find_parent("td")
             if td:
                 raw = td.get_text(" ", strip=True)
                 return re.sub(rf"{label}\s*:", "", raw, flags=re.I).strip()
 
-        # Fallback: regex on flattened text
-        m = re.search(rf"{label}\s*:\s*([^\s<]+)", text_content, re.I)
+        # --- Ref ID special case
+        if label.lower() == "ref id":
+            m = re.search(r"Ref ID:\s*([A-Za-z0-9\-]+)", text_content, re.I)
+            return m.group(1).strip() if m else ""
+
+        # --- Listing ID special case
+        if label.lower() == "listing id":
+            m = re.search(r"Listing ID:\s*(\d+)", text_content, re.I)
+            return m.group(1).strip() if m else ""
+
+        # General fallback
+        m = re.search(rf"{label}\s*:\s*([^\n\r]+)", text_content, re.I)
         return m.group(1).strip() if m else ""
 
-    # --- Contact fields
+    # Contact
     name = get_field("Contact Name")
     first_name, last_name = name.split(" ", 1) if " " in name else (name, "")
-
     email = get_field("Contact Email")
     m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", email)
     email = m_email.group(0) if m_email else email
+    phone = normalize_phone_us_e164(get_field("Contact Phone"))
 
-    phone_raw = get_field("Contact Phone")
-    phone = normalize_phone_us_e164(phone_raw)
-
-    # --- Listing + Ref ID
+    # IDs
     listing_id = get_field("Listing ID")
     ref_id = get_field("Ref ID")
-
-    contact_zip = get_field("Contact Zip")
-    investment_amount = get_field("Able to Invest")
-    purchase_timeline = get_field("Purchase Within")
-    comments = get_field("Comments")
-    comments = clean_comments_block(comments)
 
     return {
         "first_name": first_name,
@@ -341,14 +338,15 @@ def extract_bizbuysell_html(html_body):
         "ref_id": ref_id,
         "listing_id": listing_id,
         "headline": headline,
-        "contact_zip": contact_zip,
-        "investment_amount": investment_amount,
-        "purchase_timeline": purchase_timeline,
-        "comments": comments,
+        "contact_zip": get_field("Contact Zip"),
+        "investment_amount": get_field("Able to Invest"),
+        "purchase_timeline": get_field("Purchase Within"),
+        "comments": clean_comments_block(get_field("Comments")),
         "listing_url": "",
         "services_interested_in": "",
         "heard_about": ""
     }
+
 
 
 # ==============================
