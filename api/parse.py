@@ -290,36 +290,33 @@ def extract_bizbuysell_html(html_body):
                 headline = t
                 break
 
-    def get_field(label):
-        # Look for <span> with this label
-        stag = soup.find("span", string=lambda s: s and label.lower() in s.lower())
-        if stag:
-            # --- Listing ID special case: always inside an <a>
-            if label.lower() == "listing id":
-                link = stag.find_next("a")
-                if link:
-                    return link.get_text(strip=True)
+   def get_field(label):
+    # Find both <b> or <span> tags that contain the label
+    stag = soup.find(lambda tag: tag.name in ["b", "span"] and tag.get_text(strip=True).lower().startswith(label.lower()))
+    if stag:
+        if label.lower() == "listing id":
+            link = stag.find_next("a")
+            if link:
+                return link.get_text(strip=True)
 
-            # --- Ref ID special case: plain text sibling
-            if label.lower() == "ref id":
-                sib = stag.next_sibling
-                if sib:
-                    return str(sib).strip().lstrip(":").strip()
+        if label.lower() == "ref id":
+            sib = stag.next_sibling
+            if sib:
+                return str(sib).strip().lstrip(":").strip()
 
-            # --- Generic case: use the next <span>
-            nxt = stag.find_next("span")
-            if nxt:
-                return nxt.get_text(strip=True)
+        nxt = stag.find_next("span")
+        if nxt:
+            return nxt.get_text(strip=True)
 
-            # Fallback: text of parent td minus label
-            td = stag.find_parent("td")
-            if td:
-                raw = td.get_text(" ", strip=True)
-                return re.sub(rf"{label}\s*:", "", raw, flags=re.I).strip()
+        td = stag.find_parent("td")
+        if td:
+            raw = td.get_text(" ", strip=True)
+            return re.sub(rf"{label}\s*:", "", raw, flags=re.I).strip()
 
-        # Final fallback: regex on full text
-        m = re.search(rf"{label}\s*:\s*([^\n\r]+)", text_content, re.I)
-        return m.group(1).strip() if m else ""
+    # Final fallback
+    m = re.search(rf"{label}\s*:\s*([A-Za-z0-9\-\s\(\)]+)", text_content, re.I)
+    return m.group(1).strip() if m else ""
+
 
     # Contact fields
     name = get_field("Contact Name")
