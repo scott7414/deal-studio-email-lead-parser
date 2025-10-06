@@ -277,6 +277,7 @@ def extract_dealstream_text(text_body):
 # ==============================
 # ✅ BizBuySell (HTML) — original pattern
 # ==============================
+
 def extract_bizbuysell_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
     text_content = soup.get_text(" ", strip=True)
@@ -290,35 +291,34 @@ def extract_bizbuysell_html(html_body):
                 headline = t
                 break
 
-   def get_field(label):
-    # Find both <b> or <span> tags that contain the label
-    stag = soup.find(lambda tag: tag.name in ["b", "span"] and tag.get_text(strip=True).lower().startswith(label.lower()))
-    if stag:
-        if label.lower() == "listing id":
-            link = stag.find_next("a")
-            if link:
-                return link.get_text(strip=True)
+    def get_field(label):
+        # Find both <b> or <span> tags that contain the label
+        stag = soup.find(lambda tag: tag.name in ["b", "span"] and label.lower() in tag.get_text(strip=True).lower())
+        if stag:
+            if label.lower() == "listing id":
+                link = stag.find_next("a")
+                if link:
+                    return link.get_text(strip=True)
 
-        if label.lower() == "ref id":
-            sib = stag.next_sibling
-            if sib:
-                return str(sib).strip().lstrip(":").strip()
+            if label.lower() == "ref id":
+                sib = stag.next_sibling
+                if sib:
+                    return str(sib).strip().lstrip(":").strip()
 
-        nxt = stag.find_next("span")
-        if nxt:
-            return nxt.get_text(strip=True)
+            nxt = stag.find_next("span")
+            if nxt:
+                return nxt.get_text(strip=True)
 
-        td = stag.find_parent("td")
-        if td:
-            raw = td.get_text(" ", strip=True)
-            return re.sub(rf"{label}\s*:", "", raw, flags=re.I).strip()
+            td = stag.find_parent("td")
+            if td:
+                raw = td.get_text(" ", strip=True)
+                return re.sub(rf"{label}\s*:", "", raw, flags=re.I).strip()
 
-    # Final fallback
-    m = re.search(rf"{label}\s*:\s*([A-Za-z0-9\-\s\(\)]+)", text_content, re.I)
-    return m.group(1).strip() if m else ""
+        # Final fallback (regex on full text, stop at next label)
+        m = re.search(rf"{label}\s*:\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)", text_content, re.I)
+        return m.group(1).strip() if m else ""
 
-
-    # Contact fields
+    # --- Contact fields ---
     name = get_field("Contact Name")
     first_name, last_name = name.split(" ", 1) if " " in name else (name, "")
 
@@ -348,6 +348,7 @@ def extract_bizbuysell_html(html_body):
         "services_interested_in": "",
         "heard_about": ""
     }
+
 
 
 
