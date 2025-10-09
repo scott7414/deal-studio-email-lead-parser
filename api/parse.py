@@ -616,10 +616,12 @@ def extract_murphy_text(text_body):
     headline = ''
 
     def get_after(label):
-        pattern = rf"{label}\s*:\s*([^\n\r]+)"
+        """Generic label finder that captures text until newline."""
+        pattern = rf"{re.escape(label)}\s*:\s*([^\n\r]+)"
         m = re.search(pattern, text, re.IGNORECASE)
         return m.group(1).strip() if m else ''
 
+    # --- Base fields ---
     name = get_after("Name")
     first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
@@ -627,14 +629,19 @@ def extract_murphy_text(text_body):
     contact_zip = get_after("ZIP/Postal Code")
     phone = normalize_phone_us_e164(get_after("Phone"))
     services = get_after("Services Interested In")
-    heard = get_after("How did you hear about us\??")
+    heard = get_after("How did you hear about us?")
+    if not heard:
+        heard = get_after("How did you hear about us")  # fallback without question mark
+
+    # --- Listing / Ref ID ---
+    ref_id = get_after("Listing Number") or get_after("Listing ID")
 
     return {
         "first_name": first_name,
         "last_name": last_name,
         "email": email,
         "phone": phone,
-        "ref_id": "",
+        "ref_id": ref_id,                    # ✅ populated when listing number exists
         "listing_id": "",
         "headline": headline,
         "contact_zip": contact_zip,
@@ -642,9 +649,10 @@ def extract_murphy_text(text_body):
         "purchase_timeline": "",
         "comments": "",
         "listing_url": "",
-        "services_interested_in": services,
-        "heard_about": heard
+        "services_interested_in": services,  # ✅ preserved
+        "heard_about": heard                 # ✅ preserved
     }
+
 
 # ==============================
 # ✅ BusinessBroker.net (HTML) — original pattern + address fields
