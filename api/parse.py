@@ -566,28 +566,36 @@ def extract_murphy_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
     text = soup.get_text(separator="\n")
 
-    headline = ''
+    headline = ""
 
     def get_after(label):
-        pattern = rf"{label}\s*:\s*([^\n\r]+)"
+        """Match label followed by colon and capture its value (until newline or <br>)."""
+        pattern = rf"{re.escape(label)}\s*:\s*([^\n\r<]+)"
         m = re.search(pattern, text, re.IGNORECASE)
-        return m.group(1).strip() if m else ''
+        return m.group(1).strip() if m else ""
 
+    # --- Base fields ---
     name = get_after("Name")
-    first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
+    first_name, last_name = name.split(" ", 1) if " " in name else (name, "")
 
     email = get_after("Email")
     contact_zip = get_after("ZIP/Postal Code")
     phone = normalize_phone_us_e164(get_after("Phone"))
     services = get_after("Services Interested In")
-    heard = get_after("How did you hear about us\??")
+    heard = get_after("How did you hear about us?")
+    if not heard:  # in some variants the question mark is omitted
+        heard = get_after("How did you hear about us")
+
+    # --- Listing / Ref ID ---
+    # Some versions include "Listing Number:" or "Listing ID:"
+    ref_id = get_after("Listing Number") or get_after("Listing ID")
 
     return {
         "first_name": first_name,
         "last_name": last_name,
         "email": email,
         "phone": phone,
-        "ref_id": "",
+        "ref_id": ref_id,                    # now populated if listing number exists
         "listing_id": "",
         "headline": headline,
         "contact_zip": contact_zip,
@@ -595,8 +603,8 @@ def extract_murphy_html(html_body):
         "purchase_timeline": "",
         "comments": "",
         "listing_url": "",
-        "services_interested_in": services,
-        "heard_about": heard
+        "services_interested_in": services,  # captured correctly
+        "heard_about": heard                 # captured correctly
     }
 
 # ==============================
