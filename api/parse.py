@@ -195,13 +195,22 @@ def extract_dealstream_html(html_body):
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
     text = soup.get_text("\n")
 
-    # Lead name — prefer the first line after "Thank you for your inquiry"
-    m_ty = re.search(r"Thank you for your inquiry.*?\n+([^\n\r]+)", text, re.I | re.S)
-    if m_ty:
-        lead_name = m_ty.group(1).strip()
-    else:
-        m_hello = re.search(r"Hello\s+([^,]+),", text, re.I)
-        lead_name = m_hello.group(1).strip() if m_hello else ""
+    # Lead name — buyer/inquirer appears after "here is their information" section
+    lead_name = ""
+    m_info = re.search(r"here is their information", text, re.I)
+    if m_info:
+        # search after that section for a line preceding "Broker"
+        after = text[m_info.end():]
+        m_name = re.search(r"\n\s*([A-Z][A-Za-z' .-]+)\s*\n\s*Broker", after, re.I)
+        if m_name:
+            lead_name = m_name.group(1).strip()
+
+    if not lead_name:
+        # fallback: first capitalized line before "Broker"
+        m_name = re.search(r"\n\s*([A-Z][A-Za-z' .-]+)\s*\n\s*Broker", text, re.I)
+        if m_name:
+            lead_name = m_name.group(1).strip()
+
     # Split only on the first space
     parts = lead_name.split(None, 1)
     first_name = parts[0] if parts else ""
@@ -237,11 +246,22 @@ def extract_dealstream_html(html_body):
 def extract_dealstream_text(text_body):
     txt = text_body.replace("\r", "")
 
-    # Lead name — take the line directly after "Thank you for your inquiry"
-    m_ty = re.search(r"Thank you for your inquiry.*?\n+([^\n\r]+)", txt, re.I | re.S)
-    lead_name = m_ty.group(1).strip() if m_ty else ""
+    # Lead name — buyer/inquirer appears after "here is their information" section
+    lead_name = ""
+    m_info = re.search(r"here is their information", txt, re.I)
+    if m_info:
+        after = txt[m_info.end():]
+        m_name = re.search(r"\n\s*([A-Z][A-Za-z' .-]+)\s*\n\s*Broker", after, re.I)
+        if m_name:
+            lead_name = m_name.group(1).strip()
 
-    # Remove trailing broker/agent noise if accidentally included
+    if not lead_name:
+        # fallback: first capitalized line before "Broker"
+        m_name = re.search(r"\n\s*([A-Z][A-Za-z' .-]+)\s*\n\s*Broker", txt, re.I)
+        if m_name:
+            lead_name = m_name.group(1).strip()
+
+    # Clean any role suffixes just in case
     lead_name = re.sub(r"\b(Broker|Agent|Owner).*$", "", lead_name, flags=re.I).strip()
 
     # Split only on the first space
@@ -271,7 +291,6 @@ def extract_dealstream_text(text_body):
         "headline": "",
         "listing_url": ""
     }
-
 
 
 # ==============================
