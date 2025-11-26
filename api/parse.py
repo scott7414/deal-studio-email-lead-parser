@@ -1153,6 +1153,66 @@ def extract_restaurantsforsale_text(text_body):
         "heard_about": ""
     }
 
+# ==============================
+# ✅ FranchiseResales.com (TEXT)
+# ==============================
+def extract_franchiseresales_text(text_body):
+    txt = text_body.replace("\r", "").strip()
+
+    # --- Listing title (headline) ---
+    # First line after the reference sentence
+    m_head = re.search(
+        r"in reference to the following listing:\s*\n([^\n]+)",
+        txt,
+        re.I
+    )
+    headline = m_head.group(1).strip() if m_head else ""
+
+    # --- URL ---
+    m_url = re.search(r"URL:\s*(https?://\S+)", txt, re.I)
+    listing_url = m_url.group(1).strip() if m_url else ""
+
+    # --- Internal Listing ID ---
+    m_ref = re.search(r"Internal Listing ID\s*([A-Za-z0-9\-]+)", txt, re.I)
+    ref_id = m_ref.group(1).strip() if m_ref else ""
+
+    # --- Contact fields ---
+    def get_after(label):
+        m = re.search(rf"{re.escape(label)}:\s*([^\n]+)", txt, re.I)
+        return m.group(1).strip() if m else ""
+
+    full_name = get_after("Contact Name")
+    if " " in full_name:
+        first_name, last_name = full_name.split(" ", 1)
+    else:
+        first_name, last_name = full_name, ""
+
+    phone = normalize_phone_us_e164(get_after("Contact Phone"))
+    email = get_after("Contact E-mail")
+    comments = get_after("Contact Message")
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": ref_id,
+        "listing_id": "",
+        "headline": headline,
+        "address": "",
+        "city": "",
+        "state": "",
+        "country": "",
+        "contact_zip": "",
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": comments,
+        "listing_url": listing_url,
+        "services_interested_in": "",
+        "heard_about": ""
+    }
+
+
 
 # ==============================
 # ✅ Mapper to unified nested schema
@@ -1261,6 +1321,14 @@ def parse_email():
         elif "restaurants-for-sale.com" in lowered or "restaurants for sale online" in lowered:
             flat = extract_restaurantsforsale_html(body) if is_html else extract_restaurantsforsale_text(body)
             return jsonify(to_nested("restaurantsforsale", flat))
+
+                # --- FranchiseResales ---
+        elif "franchiseresales.com" in lowered or "franchise resales" in lowered:
+            flat = extract_franchiseresales_text(
+                body if not is_html else BeautifulSoup(body, "html.parser").get_text("\n")
+            )
+            return jsonify(to_nested("franchiseresales", flat))
+
 
 
         # --- Unknown ---
