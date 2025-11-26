@@ -1048,6 +1048,113 @@ def extract_fcbb_text(text_body):
     }
 
 # ==============================
+# ✅ Restaurants-For-Sale (HTML)
+# ==============================
+def extract_restaurantsforsale_html(html_body):
+    soup = BeautifulSoup(html.unescape(html_body), "html.parser")
+    text = soup.get_text("\n", strip=True)
+
+    # --- Name ---
+    m_name = re.search(r"Name\s*\n([^\n]+)", text, re.I)
+    full_name = (m_name.group(1).strip() if m_name else "")
+    if " " in full_name:
+        first_name, last_name = full_name.split(" ", 1)
+    else:
+        first_name, last_name = full_name, ""
+
+    # --- Email ---
+    m_email = re.search(r"Email\s*\n([^\n]+)", text, re.I)
+    email = m_email.group(1).strip() if m_email else ""
+
+    # --- Phone ---
+    m_phone = re.search(r"Phone Number\s*\n([^\n]+)", text, re.I)
+    raw_phone = m_phone.group(1).strip() if m_phone else ""
+    phone = normalize_phone_us_e164(raw_phone)
+
+    # --- Message & Ref ID ---
+    m_msg = re.search(r"Message\s*\n(.+)$", text, re.I | re.S)
+    msg = m_msg.group(1).strip() if m_msg else ""
+
+    # ref_id = text after "regarding"
+    m_ref = re.search(r"regarding\s+([A-Za-z0-9\-]+)", msg, re.I)
+    ref_id = m_ref.group(1).strip() if m_ref else ""
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": ref_id,
+        "listing_id": "",
+        "headline": "",
+        "address": "",
+        "city": "",
+        "state": "",
+        "country": "",
+        "contact_zip": "",
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": msg,
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": ""
+    }
+
+
+# ==============================
+# ✅ Restaurants-For-Sale (TEXT)
+# ==============================
+def extract_restaurantsforsale_text(text_body):
+    txt = text_body.replace("\r", "").strip()
+
+    # --- Name ---
+    m_name = re.search(r"Name\s*\n([^\n]+)", txt, re.I)
+    full_name = (m_name.group(1).strip() if m_name else "")
+    if " " in full_name:
+        first_name, last_name = full_name.split(" ", 1)
+    else:
+        first_name, last_name = full_name, ""
+
+    # --- Email ---
+    m_email = re.search(r"Email\s*\n([^\n]+)", txt, re.I)
+    email = m_email.group(1).strip() if m_email else ""
+
+    # --- Phone ---
+    m_phone = re.search(r"Phone Number\s*\n([^\n]+)", txt, re.I)
+    raw_phone = m_phone.group(1).strip() if m_phone else ""
+    phone = normalize_phone_us_e164(raw_phone)
+
+    # --- Message block ---
+    m_msg = re.search(r"Message\s*\n(.+)$", txt, re.I | re.S)
+    msg = m_msg.group(1).strip() if m_msg else ""
+
+    # --- Ref ID (after "regarding") ---
+    m_ref = re.search(r"regarding\s+([A-Za-z0-9\-]+)", msg, re.I)
+    ref_id = m_ref.group(1).strip() if m_ref else ""
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": ref_id,
+        "listing_id": "",
+        "headline": "",
+        "address": "",
+        "city": "",
+        "state": "",
+        "country": "",
+        "contact_zip": "",
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": msg,
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": ""
+    }
+
+
+# ==============================
 # ✅ Mapper to unified nested schema
 # ==============================
 def to_nested(source: str, flat: dict, error_debug: str = "") -> dict:
@@ -1149,6 +1256,12 @@ def parse_email():
         elif "businessbroker.net" in lowered:
             flat = extract_businessbroker_html(body) if is_html else extract_businessbroker_text(body)
             return jsonify(to_nested("businessbroker", flat))
+
+                # --- RestaurantsForSale ---
+        elif "restaurants-for-sale.com" in lowered or "restaurants for sale online" in lowered:
+            flat = extract_restaurantsforsale_html(body) if is_html else extract_restaurantsforsale_text(body)
+            return jsonify(to_nested("restaurantsforsale", flat))
+
 
         # --- Unknown ---
         else:
