@@ -1278,6 +1278,73 @@ def extract_loopnet_html(html_body):
     # Reuse the text parser
     return extract_loopnet_text(text)
 
+# ====================================
+# ✅ Crexi (TEXT Email)
+# ====================================
+def extract_crexi_text(text_body):
+    txt = text_body.replace("\r", "").strip()
+
+    # --- First sentence: Name + Ref ID ---
+    # Format:
+    # John Doe has downloaded the flyer for Some Listing - ABC-123-XX in Town.
+    m_head = re.search(
+        r"^([A-Za-z .'-]+)\s+has downloaded the flyer for\s+.+?-+\s*([A-Za-z0-9\-]+)",
+        txt,
+        re.I | re.M
+    )
+
+    full_name = ""
+    ref_id = ""
+
+    if m_head:
+        full_name = m_head.group(1).strip()
+        ref_id = m_head.group(2).strip()
+
+    # --- Name split ---
+    if " " in full_name:
+        first_name, last_name = full_name.split(" ", 1)
+    else:
+        first_name, last_name = full_name, ""
+
+    # --- Email ---
+    m_email = re.search(r"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})", txt)
+    email = m_email.group(1).strip() if m_email else ""
+
+    # --- Phone ---
+    m_phone = re.search(r"(\+?\d[\d\.\-\s]{7,}\d)", txt)
+    phone_raw = m_phone.group(1).strip() if m_phone else ""
+    phone = normalize_phone_us_e164(phone_raw)
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": ref_id,
+        "listing_id": "",
+        "headline": "",
+        "address": "",
+        "city": "",
+        "state": "",
+        "country": "",
+        "contact_zip": "",
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": "",
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": ""
+    }
+
+# ====================================
+# ✅ Crexi (HTML Email)
+# ====================================
+def extract_crexi_html(html_body):
+    soup = BeautifulSoup(html.unescape(html_body), "html.parser")
+    text = soup.get_text("\n", strip=True)
+    return extract_crexi_text(text)
+
+
 
 
 # ==============================
@@ -1399,6 +1466,12 @@ def parse_email():
         elif "loopnet.com" in lowered or "loopnet" in lowered:
             flat = extract_loopnet_html(body) if is_html else extract_loopnet_text(body)
             return jsonify(to_nested("loopnet", flat))
+
+                # --- Crexi ---
+        elif "crexi.com" in lowered or "crexi" in lowered:
+            flat = extract_crexi_html(body) if is_html else extract_crexi_text(body)
+            return jsonify(to_nested("crexi", flat))
+
 
 
         # --- Unknown ---
