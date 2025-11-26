@@ -1212,6 +1212,72 @@ def extract_franchiseresales_text(text_body):
         "heard_about": ""
     }
 
+# ====================================
+# ✅ LoopNet (TEXT Email)
+# ====================================
+def extract_loopnet_text(text_body):
+    txt = text_body.replace("\r", "").strip()
+
+    # --- Extract the FROM line ---
+    # Example:
+    # From: Tyler Smith | +1 470-643-7013 | subtosharks@gmail.com | (Listing ID : 38357782)
+    m_from = re.search(
+        r"From:\s*(.+?)\|\s*(.+?)\|\s*([^\|]+?)\|\s*\(Listing ID\s*:\s*([0-9]+)\)",
+        txt,
+        re.I
+    )
+
+    full_name = phone_raw = email = ref_id = ""
+
+    if m_from:
+        full_name = m_from.group(1).strip()
+        phone_raw = m_from.group(2).strip()
+        email = m_from.group(3).strip()
+        ref_id = m_from.group(4).strip()
+
+    # --- Name Split ---
+    if " " in full_name:
+        first_name, last_name = full_name.split(" ", 1)
+    else:
+        first_name, last_name = full_name, ""
+
+    # --- Phone ---
+    phone = normalize_phone_us_e164(phone_raw)
+
+    # No buyer message in LoopNet leads
+    comments = ""
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": ref_id,
+        "listing_id": "",
+        "headline": "",
+        "address": "",
+        "city": "",
+        "state": "",
+        "country": "",
+        "contact_zip": "",
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": comments,
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": ""
+    }
+
+# ====================================
+# ✅ LoopNet (HTML Email)
+# ====================================
+def extract_loopnet_html(html_body):
+    soup = BeautifulSoup(html.unescape(html_body), "html.parser")
+    text = soup.get_text("\n", strip=True)
+
+    # Reuse the text parser
+    return extract_loopnet_text(text)
+
 
 
 # ==============================
@@ -1329,6 +1395,10 @@ def parse_email():
             )
             return jsonify(to_nested("franchiseresales", flat))
 
+                # --- LoopNet ---
+        elif "loopnet.com" in lowered or "loopnet" in lowered:
+            flat = extract_loopnet_html(body) if is_html else extract_loopnet_text(body)
+            return jsonify(to_nested("loopnet", flat))
 
 
         # --- Unknown ---
