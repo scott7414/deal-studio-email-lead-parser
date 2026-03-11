@@ -1607,6 +1607,7 @@ def parse_email():
     is_html = ("<html" in lowered) or ("<body" in lowered) or ("<div" in lowered)
 
     try:
+
         # --- FCBB ---
         if "fcbb.com" in lowered or "oms.fcbb.com" in lowered or "first choice business brokers" in lowered:
             flat = extract_fcbb_html(body) if is_html else extract_fcbb_text(body)
@@ -1629,6 +1630,11 @@ def parse_email():
             flat = extract_dealstream_html(body) if is_html else extract_dealstream_text(body)
             return jsonify(to_nested("dealstream", flat))
 
+        # --- BizListPro ---
+        elif "bizlistpro" in lowered:
+            flat = extract_bizlistpro_html(body)
+            return jsonify(to_nested("bizlistpro", flat))
+
         # --- Murphy Business ---
         elif "murphybusiness.com" in lowered or "murphy business" in lowered:
             flat = extract_murphy_html(body) if is_html else extract_murphy_text(body)
@@ -1639,29 +1645,27 @@ def parse_email():
             flat = extract_businessbroker_html(body) if is_html else extract_businessbroker_text(body)
             return jsonify(to_nested("businessbroker", flat))
 
-                # --- RestaurantsForSale ---
+        # --- RestaurantsForSale ---
         elif "restaurants-for-sale.com" in lowered or "restaurants for sale online" in lowered:
             flat = extract_restaurantsforsale_html(body) if is_html else extract_restaurantsforsale_text(body)
             return jsonify(to_nested("restaurantsforsale", flat))
 
-                # --- FranchiseResales ---
+        # --- FranchiseResales ---
         elif "franchiseresales.com" in lowered or "franchise resales" in lowered:
             flat = extract_franchiseresales_text(
                 body if not is_html else BeautifulSoup(body, "html.parser").get_text("\n")
             )
             return jsonify(to_nested("franchiseresales", flat))
 
-                # --- LoopNet ---
+        # --- LoopNet ---
         elif "loopnet.com" in lowered or "loopnet" in lowered:
             flat = extract_loopnet_html(body) if is_html else extract_loopnet_text(body)
             return jsonify(to_nested("loopnet", flat))
 
-                # --- Crexi ---
+        # --- Crexi ---
         elif "crexi.com" in lowered or "crexi" in lowered:
             flat = extract_crexi_html(body) if is_html else extract_crexi_text(body)
             return jsonify(to_nested("crexi", flat))
-
-
 
         # --- Unknown ---
         else:
@@ -1674,6 +1678,7 @@ def parse_email():
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"ok": True})
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
