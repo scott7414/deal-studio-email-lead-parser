@@ -189,56 +189,95 @@ def parse_address_loose(addr: str, default_country: str = "") -> dict:
     return {"address1": s, "city": "", "state": "", "zip": "", "country": country}
 
 # ==============================
-# ✅ DealStream (HTML)
+# ✅ DealStream HTML Parser
 # ==============================
 def extract_dealstream_html(html_body):
-    soup = BeautifulSoup(html.unescape(html_body), "html.parser")
+
+    soup = BeautifulSoup(html_body, "html.parser")
     text = soup.get_text("\n")
 
-    # Lead name — buyer/inquirer appears after "here is their information" section
-    lead_name = ""
-    m_info = re.search(r"here is their information", text, re.I)
-    if m_info:
-        # search after that section for a line preceding "Broker"
-        after = text[m_info.end():]
-        m_name = re.search(r"\n\s*([A-Z][A-Za-z' .-]+)\s*\n\s*Broker", after, re.I)
-        if m_name:
-            lead_name = m_name.group(1).strip()
+    # ------------------------------------------------
+    # Helper: get value after a label
+    # ------------------------------------------------
+    def get_label_value(label):
+        m = re.search(rf"{re.escape(label)}\s*:\s*(.+)", text, re.I)
+        return m.group(1).strip() if m else ""
 
-    if not lead_name:
-        # fallback: first capitalized line before "Broker"
-        m_name = re.search(r"\n\s*([A-Z][A-Za-z' .-]+)\s*\n\s*Broker", text, re.I)
-        if m_name:
-            lead_name = m_name.group(1).strip()
+    # ------------------------------------------------
+    # NAME (first strong tag usually contains name)
+    # ------------------------------------------------
+    first_name = ""
+    last_name = ""
 
-    # Split only on the first space
-    parts = lead_name.split(None, 1)
-    first_name = parts[0] if parts else ""
-    last_name = parts[1] if len(parts) > 1 else ""
+    strong = soup.find("strong")
 
-    # Email (strip out any trailing <mailto:...>)
-    m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", text)
-    email = m_email.group(0).strip() if m_email else ""
+    if strong:
+        name = strong.get_text(strip=True)
 
-    # Phone
-    m_phone = re.search(r"(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}", text)
-    phone = normalize_phone_us_e164(m_phone.group(0)) if m_phone else ""
+        if " " in name:
+            first_name, last_name = name.split(" ", 1)
+        else:
+            first_name = name
+            last_name = ""
 
-    # Ref ID
-    m_ref = re.search(r"Reference Number:\s*([0-9]+)", text, re.I)
-    ref_id = m_ref.group(1).strip() if m_ref else ""
+    # ------------------------------------------------
+    # EMAIL
+    # ------------------------------------------------
+    email = ""
 
+    m = re.search(r"mailto:([^\"'>]+)", html_body, re.I)
+    if m:
+        email = m.group(1).strip()
+
+    # ------------------------------------------------
+    # PHONE
+    # ------------------------------------------------
+    phone = ""
+
+    m = re.search(r"tel:\+?([0-9\-\+\s\(\)]+)", html_body, re.I)
+    if m:
+        phone = normalize_phone_us_e164(m.group(1))
+
+    # ------------------------------------------------
+    # LOCATION
+    # ------------------------------------------------
+    location = get_label_value("Location")
+
+    # ------------------------------------------------
+    # LISTING HEADLINE
+    # (whatever text follows "Listing:")
+    # ------------------------------------------------
+    headline = get_label_value("Listing")
+
+    # ------------------------------------------------
+    # REFERENCE NUMBER
+    # (numeric OR text)
+    # ------------------------------------------------
+    ref_id = get_label_value("Reference Number")
+
+    # ------------------------------------------------
+    # RETURN
+    # ------------------------------------------------
     return {
-        "source": "dealstream",
         "first_name": first_name,
         "last_name": last_name,
         "email": email,
         "phone": phone,
         "ref_id": ref_id,
-        "headline": "",
-        "listing_url": ""
+        "listing_id": "",
+        "headline": headline,
+        "address": "",
+        "city": "",
+        "state": "",
+        "country": "",
+        "contact_zip": "",
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": "",
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": ""
     }
-
 
 # ==============================
 # ✅ DealStream (TEXT)
