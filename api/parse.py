@@ -204,27 +204,29 @@ def extract_dealstream_html(html_body):
         return m.group(1).strip() if m else ""
 
     # ------------------------------------------------
-    # NAME (first <strong> block before contact info)
-    # Handles:
-    # Kevin Castello
-    # Sunny
+    # NAME
+    # Skip empty <strong> tags and greetings
     # ------------------------------------------------
     first_name = ""
     last_name = ""
-
-    name_tag = None
 
     for tag in soup.find_all("strong"):
 
         name_candidate = tag.get_text(strip=True)
 
-        if name_candidate and not name_candidate.lower().startswith("hello"):
-            name_tag = tag
+        if not name_candidate:
+            continue
+
+        if name_candidate.lower().startswith("hello"):
+            continue
+
+        if len(name_candidate) > 1:
+            name = name_candidate
             break
+    else:
+        name = ""
 
-    if name_tag:
-
-        name = name_tag.get_text(strip=True)
+    if name:
 
         if " " in name:
             first_name, last_name = name.split(" ", 1)
@@ -238,7 +240,6 @@ def extract_dealstream_html(html_body):
     email = ""
 
     m = re.search(r"mailto:([^\"'>]+)", html_body, re.I)
-
     if m:
         email = m.group(1).strip()
 
@@ -248,7 +249,6 @@ def extract_dealstream_html(html_body):
     phone = ""
 
     m = re.search(r"tel:\+?([0-9\-\+\s\(\)]+)", html_body, re.I)
-
     if m:
         phone = normalize_phone_us_e164(m.group(1))
 
@@ -268,7 +268,7 @@ def extract_dealstream_html(html_body):
     ref_id = get_label_value("Reference Number")
 
     # ------------------------------------------------
-    # RETURN STRUCTURE
+    # RETURN
     # ------------------------------------------------
     return {
         "first_name": first_name,
