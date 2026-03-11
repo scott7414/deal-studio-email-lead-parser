@@ -496,7 +496,7 @@ def extract_bizbuysell_text(text_body):
 # ==============================
 def extract_businessesforsale_text(text_body):
 
-    # Normalize lines and remove empty ones
+    # Normalize lines and remove blanks
     lines = text_body.replace('\r', '').split('\n')
     lines = [line.strip() for line in lines if line.strip()]
     full_text = "\n".join(lines)
@@ -518,7 +518,6 @@ def extract_businessesforsale_text(text_body):
         listing_url = listing_url.strip()
 
     else:
-        # Fallback extraction if formatting slightly differs
         m_ref = re.search(r"(?is)your\s+listing\s+ref\s*:\s*([A-Za-z0-9\-]+)", full_text)
 
         if m_ref:
@@ -534,12 +533,23 @@ def extract_businessesforsale_text(text_body):
                 listing_url = m_url.group(0).strip()
 
     # ------------------------------------------------
-    # Simple helper to extract line-based fields
-    # Example: Name: John Doe
+    # Extract ONLY the buyer info block
+    # (prevents grabbing publisher footer fields)
+    # ------------------------------------------------
+    lead_block_match = re.search(
+        r"Name:\s*.+?Email:\s*.+?",
+        full_text,
+        re.S
+    )
+
+    lead_block = lead_block_match.group(0) if lead_block_match else full_text
+
+    # ------------------------------------------------
+    # Safe field extractor (only searches buyer block)
     # ------------------------------------------------
     def get_field(label):
-        m = re.search(rf"{re.escape(label)}:\s*(.+)", full_text)
-        return m.group(1).strip() if m else ''
+        m = re.search(rf"{re.escape(label)}:\s*(.+)", lead_block)
+        return m.group(1).strip() if m else ""
 
     # ------------------------------------------------
     # Contact Name
@@ -547,46 +557,31 @@ def extract_businessesforsale_text(text_body):
     name = get_field("Name")
 
     if " " in name:
-        first_name, last_name = name.split(' ', 1)
+        first_name, last_name = name.split(" ", 1)
     else:
-        first_name, last_name = name, ''
+        first_name, last_name = name, ""
 
     # ------------------------------------------------
-    # Phone and Email
+    # Contact Email / Phone
     # ------------------------------------------------
-    phone = normalize_phone_us_e164(get_field("Tel"))
     email = get_field("Email")
+    phone = normalize_phone_us_e164(get_field("Tel"))
 
     # ------------------------------------------------
     # Buyer Address Fields
-    #
-    # IMPORTANT:
-    # We only use address fields if "Company Name" exists.
-    # This prevents the parser from grabbing the publisher
-    # footer address at the bottom of the email.
     # ------------------------------------------------
-    address = ""
-    city = ""
-    state = ""
-    country = ""
-    contact_zip = ""
+    addr1 = get_field("Address1")
+    addr2 = get_field("Address2")
 
-    company = get_field("Company Name")
+    city = get_field("City")
+    state = get_field("County")
+    contact_zip = get_field("Postcode")
+    country = get_field("Country")
 
-    if company:
-
-        addr1 = get_field("Address1")
-        addr2 = get_field("Address2")
-
-        city = get_field("City")
-        state = get_field("County")
-        contact_zip = get_field("Postcode")
-        country = get_field("Country")
-
-        if addr1 and addr2:
-            address = f"{addr1}, {addr2}"
-        else:
-            address = addr1
+    if addr1 and addr2:
+        address = f"{addr1}, {addr2}"
+    else:
+        address = addr1
 
     # ------------------------------------------------
     # Extract Buyer Message / Comments
@@ -604,7 +599,7 @@ def extract_businessesforsale_text(text_body):
     comments = clean_comments_block(comments)
 
     # ------------------------------------------------
-    # Return standardized parsed output
+    # Return parsed lead data
     # ------------------------------------------------
     return {
         "first_name": first_name,
