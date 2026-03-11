@@ -492,83 +492,133 @@ def extract_bizbuysell_text(text_body):
     }
 
 # ==============================
-# ✅ BusinessesForSale (TEXT) — original pattern
+# ✅ BusinessesForSale (TEXT)
 # ==============================
 def extract_businessesforsale_text(text_body):
+
+    # Normalize lines and remove empty ones
     lines = text_body.replace('\r', '').split('\n')
     lines = [line.strip() for line in lines if line.strip()]
     full_text = "\n".join(lines)
 
-    # ---- Robust ref/headline/url block (hyphen-aware, case-insensitive) ----
+    # ------------------------------------------------
+    # Extract Listing Reference, Headline, and URL
+    # ------------------------------------------------
     block = re.search(
         r"(?is)your\s+listing\s+ref\s*:\s*([A-Za-z0-9\-]+)\s+(.+?)\s*\n(https?://\S+)",
         full_text
     )
+
     ref_id, headline, listing_url = '', '', ''
+
     if block:
         ref_id, headline, listing_url = block.groups()
         ref_id = ref_id.strip()
         headline = headline.strip()
         listing_url = listing_url.strip()
+
     else:
-        # Fallback: capture ref id, headline remainder, and first URL after it
+        # Fallback extraction if formatting slightly differs
         m_ref = re.search(r"(?is)your\s+listing\s+ref\s*:\s*([A-Za-z0-9\-]+)", full_text)
+
         if m_ref:
             ref_id = m_ref.group(1).strip()
             start = m_ref.end()
+
             m_head = re.search(r"\s+([^\n]+)", full_text[start:])
             if m_head:
                 headline = m_head.group(1).strip()
+
             m_url = re.search(r"https?://\S+", full_text[start:])
             if m_url:
                 listing_url = m_url.group(0).strip()
 
-    # Simple field getter (line-scoped)
+    # ------------------------------------------------
+    # Simple helper to extract line-based fields
+    # Example: Name: John Doe
+    # ------------------------------------------------
     def get_field(label):
         m = re.search(rf"{re.escape(label)}:\s*(.+)", full_text)
         return m.group(1).strip() if m else ''
 
+    # ------------------------------------------------
+    # Contact Name
+    # ------------------------------------------------
     name = get_field("Name")
-    first_name, last_name = name.split(' ', 1) if ' ' in name else (name, '')
 
-    # Phone / Email
+    if " " in name:
+        first_name, last_name = name.split(' ', 1)
+    else:
+        first_name, last_name = name, ''
+
+    # ------------------------------------------------
+    # Phone and Email
+    # ------------------------------------------------
     phone = normalize_phone_us_e164(get_field("Tel"))
     email = get_field("Email")
 
-    # ---- Address parsing (publisher footer or buyer if ever present) ----
-    # If you don't want publisher addresses, remove this block.
-    address = city = state = country = ""
-    contact_zip = ""   # we will prefer parsed zip if found
-    m_addr = re.search(r"(?im)^\s*Address:\s*(.+)$", full_text)
-    if m_addr:
-        addr_raw = m_addr.group(1).strip(' .')
-        parsed = parse_address_loose(addr_raw)
-        address     = parsed["address1"]
-        city        = parsed["city"]
-        state       = parsed["state"]
-        contact_zip = parsed["zip"] or ""
-        country     = parsed["country"]
+    # ------------------------------------------------
+    # Buyer Address Fields
+    #
+    # IMPORTANT:
+    # We only use address fields if "Company Name" exists.
+    # This prevents the parser from grabbing the publisher
+    # footer address at the bottom of the email.
+    # ------------------------------------------------
+    address = ""
+    city = ""
+    state = ""
+    country = ""
+    contact_zip = ""
 
-    # Comments (tolerant to spacing)
+    company = get_field("Company Name")
+
+    if company:
+
+        addr1 = get_field("Address1")
+        addr2 = get_field("Address2")
+
+        city = get_field("City")
+        state = get_field("County")
+        contact_zip = get_field("Postcode")
+        country = get_field("Country")
+
+        if addr1 and addr2:
+            address = f"{addr1}, {addr2}"
+        else:
+            address = addr1
+
+    # ------------------------------------------------
+    # Extract Buyer Message / Comments
+    # ------------------------------------------------
     comments = ''
-    cmt = re.search(r"(?is)has received the following message:\s*(.+?)\s*Name\s*:", full_text)
+
+    cmt = re.search(
+        r"(?is)has received the following message:\s*(.+?)\s*Name\s*:",
+        full_text
+    )
+
     if cmt:
         comments = cmt.group(1).strip()
+
     comments = clean_comments_block(comments)
 
+    # ------------------------------------------------
+    # Return standardized parsed output
+    # ------------------------------------------------
     return {
         "first_name": first_name,
         "last_name": last_name,
         "email": email,
         "phone": phone,
-        "ref_id": ref_id,                 # e.g., "101-24414"
+        "ref_id": ref_id,
         "listing_id": "",
         "headline": headline,
-        "address": address,               # ← now populated (if Address: is present)
+        "address": address,
         "city": city,
         "state": state,
         "country": country,
-        "contact_zip": contact_zip,       # ← from parsed address if found
+        "contact_zip": contact_zip,
         "investment_amount": "",
         "purchase_timeline": "",
         "comments": comments,
@@ -576,8 +626,6 @@ def extract_businessesforsale_text(text_body):
         "services_interested_in": "",
         "heard_about": ""
     }
-
-
 # ==============================
 # ✅ Murphy Business (HTML) — original pattern
 # ==============================
