@@ -189,7 +189,7 @@ def parse_address_loose(addr: str, default_country: str = "") -> dict:
     return {"address1": s, "city": "", "state": "", "zip": "", "country": country}
 
 # ==============================
-# ✅ DealStream HTML Parser
+# ✅ DealStream (HTML)
 # ==============================
 def extract_dealstream_html(html_body):
 
@@ -204,15 +204,27 @@ def extract_dealstream_html(html_body):
         return m.group(1).strip() if m else ""
 
     # ------------------------------------------------
-    # NAME (first strong tag usually contains name)
+    # NAME (first <strong> block before contact info)
+    # Handles:
+    # Kevin Castello
+    # Sunny
     # ------------------------------------------------
     first_name = ""
     last_name = ""
 
-    strong = soup.find("strong")
+    name_tag = None
 
-    if strong:
-        name = strong.get_text(strip=True)
+    for tag in soup.find_all("strong"):
+
+        name_candidate = tag.get_text(strip=True)
+
+        if name_candidate and not name_candidate.lower().startswith("hello"):
+            name_tag = tag
+            break
+
+    if name_tag:
+
+        name = name_tag.get_text(strip=True)
 
         if " " in name:
             first_name, last_name = name.split(" ", 1)
@@ -226,6 +238,7 @@ def extract_dealstream_html(html_body):
     email = ""
 
     m = re.search(r"mailto:([^\"'>]+)", html_body, re.I)
+
     if m:
         email = m.group(1).strip()
 
@@ -235,6 +248,7 @@ def extract_dealstream_html(html_body):
     phone = ""
 
     m = re.search(r"tel:\+?([0-9\-\+\s\(\)]+)", html_body, re.I)
+
     if m:
         phone = normalize_phone_us_e164(m.group(1))
 
@@ -245,18 +259,16 @@ def extract_dealstream_html(html_body):
 
     # ------------------------------------------------
     # LISTING HEADLINE
-    # (whatever text follows "Listing:")
     # ------------------------------------------------
     headline = get_label_value("Listing")
 
     # ------------------------------------------------
     # REFERENCE NUMBER
-    # (numeric OR text)
     # ------------------------------------------------
     ref_id = get_label_value("Reference Number")
 
     # ------------------------------------------------
-    # RETURN
+    # RETURN STRUCTURE
     # ------------------------------------------------
     return {
         "first_name": first_name,
@@ -278,7 +290,6 @@ def extract_dealstream_html(html_body):
         "services_interested_in": "",
         "heard_about": ""
     }
-
 # ==============================
 # ✅ DealStream (TEXT)
 # ==============================
