@@ -1438,6 +1438,102 @@ def extract_crexi_html(html_body):
     return extract_crexi_text(text)
 
 
+# ==============================
+# ✅ BizListPro (HTML)
+# ==============================
+def extract_bizlistpro_html(html_body):
+
+    soup = BeautifulSoup(html_body, "html.parser")
+    text = soup.get_text("\n")
+
+    # ------------------------------------------------
+    # helper to get values after labels
+    # ------------------------------------------------
+    def get_label_value(label):
+        m = re.search(rf"{re.escape(label)}\s*:\s*(.+)", text, re.I)
+        return m.group(1).strip() if m else ""
+
+    # ------------------------------------------------
+    # HEADLINE + REF ID
+    # ------------------------------------------------
+    headline = ""
+    ref_id = ""
+
+    link = soup.find("a")
+
+    if link:
+        listing_text = link.get_text(strip=True)
+
+        m = re.search(r"(.+?)#([A-Za-z0-9_-]+)", listing_text)
+
+        if m:
+            headline = m.group(1)
+            ref_id = m.group(2)
+
+            # clean trailing dashes/spaces
+            headline = re.sub(r"[-\s]+$", "", headline).strip()
+
+        else:
+            headline = listing_text.strip()
+
+    # ------------------------------------------------
+    # NAME
+    # ------------------------------------------------
+    first_name = ""
+    last_name = ""
+
+    name = get_label_value("Name")
+
+    if name:
+
+        if " " in name:
+            first_name, last_name = name.split(" ", 1)
+        else:
+            first_name = name
+            last_name = ""
+
+    # ------------------------------------------------
+    # COMPANY
+    # ------------------------------------------------
+    company = get_label_value("Company")
+
+    # ------------------------------------------------
+    # EMAIL
+    # ------------------------------------------------
+    email = get_label_value("Email")
+
+    # ------------------------------------------------
+    # PHONE
+    # ------------------------------------------------
+    phone = normalize_phone_us_e164(get_label_value("Phone"))
+
+    # ------------------------------------------------
+    # MESSAGE
+    # ------------------------------------------------
+    comments = get_label_value("Message")
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": ref_id,
+        "listing_id": "",
+        "headline": headline,
+        "address": "",
+        "city": "",
+        "state": "",
+        "country": "",
+        "contact_zip": "",
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": comments,
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": "",
+        "company": company
+    }
+
 
 
 # ==============================
