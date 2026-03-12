@@ -546,131 +546,199 @@ def extract_bizbuysell_text(text_body):
 # ==============================
 def extract_businessesforsale_text(text_body):
 
-    # Normalize lines and remove blanks
-    lines = text_body.replace('\r', '').split('\n')
-    lines = [line.strip() for line in lines if line.strip()]
-    full_text = "\n".join(lines)
+    # ------------------------------------------------
+    # Normalize line endings and trim whitespace
+    # ------------------------------------------------
+    try:
+        text_body = text_body or ""
+        lines = text_body.replace("\r", "").split("\n")
+        lines = [line.strip() for line in lines]
+        full_text = "\n".join(lines)
+    except Exception:
+        full_text = text_body or ""
 
     # ------------------------------------------------
-    # Extract Listing Reference, Headline, and URL
+    # Initialize safe defaults
     # ------------------------------------------------
-    block = re.search(
-        r"(?is)your\s+listing\s+ref\s*:\s*([A-Za-z0-9\-]+)\s+(.+?)\s*\n(https?://\S+)",
-        full_text
-    )
-
-    ref_id, headline, listing_url = '', '', ''
-
-    if block:
-        ref_id, headline, listing_url = block.groups()
-        ref_id = ref_id.strip()
-        headline = headline.strip()
-        listing_url = listing_url.strip()
-
-    else:
-        m_ref = re.search(r"(?is)your\s+listing\s+ref\s*:\s*([A-Za-z0-9\-]+)", full_text)
-
-        if m_ref:
-            ref_id = m_ref.group(1).strip()
-            start = m_ref.end()
-
-            m_head = re.search(r"\s+([^\n]+)", full_text[start:])
-            if m_head:
-                headline = m_head.group(1).strip()
-
-            m_url = re.search(r"https?://\S+", full_text[start:])
-            if m_url:
-                listing_url = m_url.group(0).strip()
+    ref_id = ""
+    headline = ""
+    listing_url = ""
+    first_name = ""
+    last_name = ""
+    email = ""
+    phone = ""
+    address = ""
+    city = ""
+    state = ""
+    country = ""
+    contact_zip = ""
+    comments = ""
 
     # ------------------------------------------------
-    # Extract ONLY the buyer info block
-    # (prevents grabbing publisher footer fields)
+    # Extract Listing Reference / Headline / URL
     # ------------------------------------------------
-    lead_block_match = re.search(
-        r"Name:\s*.+?Email:\s*.+?",
-        full_text,
-        re.S
-    )
+    try:
 
-    lead_block = lead_block_match.group(0) if lead_block_match else full_text
+        block = re.search(
+            r"(?is)your\s+listing\s+ref\s*:\s*([A-Za-z0-9\-]+)\s+(.+?)\s*\n(https?://\S+)",
+            full_text
+        )
+
+        if block:
+            ref_id = (block.group(1) or "").strip()
+            headline = (block.group(2) or "").strip()
+            listing_url = (block.group(3) or "").strip()
+
+        else:
+            m_ref = re.search(
+                r"(?is)your\s+listing\s+ref\s*:\s*([A-Za-z0-9\-]+)",
+                full_text
+            )
+
+            if m_ref:
+                ref_id = (m_ref.group(1) or "").strip()
+
+                start = m_ref.end()
+                remaining = full_text[start:]
+
+                m_head = re.search(r"\s*([^\n]+)", remaining)
+                if m_head:
+                    headline = (m_head.group(1) or "").strip()
+
+                m_url = re.search(r"https?://\S+", remaining)
+                if m_url:
+                    listing_url = (m_url.group(0) or "").strip()
+
+    except Exception:
+        pass
 
     # ------------------------------------------------
-    # Safe field extractor (only searches buyer block)
+    # Extract Buyer Lead Block (prevents footer parsing)
+    # ------------------------------------------------
+    try:
+
+        lead_block_match = re.search(
+            r"Name:\s*.*?Email:\s*[^\n]*",
+            full_text,
+            re.S
+        )
+
+        lead_block = lead_block_match.group(0) if lead_block_match else ""
+
+    except Exception:
+        lead_block = ""
+
+    # ------------------------------------------------
+    # Safe field extractor (allows empty values)
     # ------------------------------------------------
     def get_field(label):
-        m = re.search(rf"{re.escape(label)}:\s*(.+)", lead_block)
-        return m.group(1).strip() if m else ""
+
+        try:
+            m = re.search(
+                rf"{re.escape(label)}:\s*([^\n]*)",
+                lead_block,
+                re.I
+            )
+
+            return (m.group(1) or "").strip() if m else ""
+
+        except Exception:
+            return ""
 
     # ------------------------------------------------
     # Contact Name
     # ------------------------------------------------
-    name = get_field("Name")
+    try:
 
-    if " " in name:
-        first_name, last_name = name.split(" ", 1)
-    else:
-        first_name, last_name = name, ""
+        name = get_field("Name")
+
+        if name and " " in name:
+            first_name, last_name = name.split(" ", 1)
+
+        elif name:
+            first_name = name
+            last_name = ""
+
+    except Exception:
+        pass
 
     # ------------------------------------------------
     # Contact Email / Phone
     # ------------------------------------------------
-    email = get_field("Email")
-    phone = normalize_phone_us_e164(get_field("Tel"))
+    try:
+        email = get_field("Email")
+    except Exception:
+        email = ""
+
+    try:
+        raw_phone = get_field("Tel")
+        phone = normalize_phone_us_e164(raw_phone) if raw_phone else ""
+    except Exception:
+        phone = ""
 
     # ------------------------------------------------
-    # Buyer Address Fields
+    # Buyer Address Fields (sometimes missing)
     # ------------------------------------------------
-    addr1 = get_field("Address1")
-    addr2 = get_field("Address2")
+    try:
 
-    city = get_field("City")
-    state = get_field("County")
-    contact_zip = get_field("Postcode")
-    country = get_field("Country")
+        addr1 = get_field("Address1")
+        addr2 = get_field("Address2")
 
-    if addr1 and addr2:
-        address = f"{addr1}, {addr2}"
-    else:
-        address = addr1
+        city = get_field("City")
+        state = get_field("County")
+        contact_zip = get_field("Postcode")
+        country = get_field("Country")
+
+        if addr1 and addr2:
+            address = f"{addr1}, {addr2}"
+        else:
+            address = addr1 or ""
+
+    except Exception:
+        pass
 
     # ------------------------------------------------
     # Extract Buyer Message / Comments
     # ------------------------------------------------
-    comments = ''
+    try:
 
-    cmt = re.search(
-        r"(?is)has received the following message:\s*(.+?)\s*Name\s*:",
-        full_text
-    )
+        cmt = re.search(
+            r"(?is)has received the following message:\s*(.+?)\s*Name\s*:",
+            full_text
+        )
 
-    if cmt:
-        comments = cmt.group(1).strip()
+        if cmt:
+            comments = (cmt.group(1) or "").strip()
 
-    comments = clean_comments_block(comments)
+        comments = clean_comments_block(comments)
+
+    except Exception:
+        comments = ""
 
     # ------------------------------------------------
-    # Return parsed lead data
+    # Return Parsed Lead
     # ------------------------------------------------
     return {
-        "first_name": first_name,
-        "last_name": last_name,
-        "email": email,
-        "phone": phone,
-        "ref_id": ref_id,
+        "first_name": first_name or "",
+        "last_name": last_name or "",
+        "email": email or "",
+        "phone": phone or "",
+        "ref_id": ref_id or "",
         "listing_id": "",
-        "headline": headline,
-        "address": address,
-        "city": city,
-        "state": state,
-        "country": country,
-        "contact_zip": contact_zip,
+        "headline": headline or "",
+        "address": address or "",
+        "city": city or "",
+        "state": state or "",
+        "country": country or "",
+        "contact_zip": contact_zip or "",
         "investment_amount": "",
         "purchase_timeline": "",
-        "comments": comments,
-        "listing_url": listing_url,
+        "comments": comments or "",
+        "listing_url": listing_url or "",
         "services_interested_in": "",
         "heard_about": ""
     }
+    
 # ==============================
 # ✅ Murphy Business (HTML) — original pattern
 # ==============================
