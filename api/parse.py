@@ -452,48 +452,142 @@ def extract_dealstream_text(text_body):
 
 
 # ==============================
-# ✅ BizBuySell (Multi-Template) — Universal Parser
+# ✅ BizBuySell (HTML) — Nested DOM Template
+# Handles the newer BizBuySell HTML emails that store
+# values inside <span style="display:block"> elements.
+#
+# This parser is intentionally separate from the legacy
+# BizBuySell HTML parser so changes here cannot break
+# older email templates.
 # ==============================
 
-def extract_bizbuysell_html(html_body):
-    # Decode and parse the HTML body
+def extract_bizbuysell_html_nested(html_body):
+
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
-    
-    # Normalize text to handle newlines/tabs as spaces
-    full_text = re.sub(r'\s+', ' ', soup.get_text(" ", strip=True))
 
-    def get_field(label):
-        # Improved Regex:
-        # 1. Matches the label followed by a colon or space
-        # 2. Uses a non-greedy match (.*?) to capture content
-        # 3. Lookahead ensures we stop before the next field header starts
-        pattern = rf"{re.escape(label)}\s*[:]?\s+(.*?)(?=\s*(?:Contact|Listing|Ref|Able|Purchase|Comments|Headline|Inquirer's|$))"
-        
-        match = re.search(pattern, full_text, re.IGNORECASE)
-        if match:
-            val = match.group(1).strip()
-            # Clean up common artifacts
-            if val.lower() in ["not disclosed", "n/a", ""]:
-                return ""
-            return val
-        return ""
+    fields = {}
 
-    # --- Extract Fields ---
-    full_name = get_field("Contact Name")
-    name_parts = full_name.split(" ", 1)
-    
+    # -------------------------
+    # Read every table cell
+    # -------------------------
+
+    for td in soup.find_all("td"):
+
+        b = td.find("b")
+
+        if not b:
+            continue
+
+        label = b.get_text(" ", strip=True).replace(":", "").strip()
+
+        # Contact fields use <span style="display:block">
+        span = td.find("span")
+
+        if span:
+            value = span.get_text(" ", strip=True).strip()
+
+            if value:
+                fields[label] = value
+                continue
+
+        # Otherwise use remaining text in the TD
+        text = td.get_text(" ", strip=True)
+
+        text = re.sub(
+            rf"^{re.escape(label)}\s*:\s*",
+            "",
+            text,
+            flags=re.I,
+        ).strip()
+
+        if text:
+            fields[label] = text
+
+    # -------------------------
+    # Headline
+    # -------------------------
+
+    headline = ""
+
+    m = re.search(
+        r"You.?ve received a new lead regarding your listing:\s*(.*?)Listing ID",
+        soup.get_text("\n", strip=True),
+        re.I | re.S,
+    )
+
+    if m:
+        headline = re.sub(r"\s+", " ", m.group(1)).strip()
+
+    # -------------------------
+    # Listing ID
+    # -------------------------
+
+    listing_id = ""
+
+    m = re.search(
+        r"Listing ID\s*:?\s*(\d+)",
+        soup.get_text("\n", strip=True),
+        re.I,
+    )
+
+    if m:
+        listing_id = m.group(1)
+
+    # -------------------------
+    # Ref ID
+    # -------------------------
+
+    ref_id = ""
+
+    m = re.search(
+        r"Ref ID\s*:?\s*([A-Za-z0-9\-]+)",
+        soup.get_text("\n", strip=True),
+        re.I,
+    )
+
+    if m:
+        ref_id = m.group(1)
+
+    # -------------------------
+    # Contact
+    # -------------------------
+
+    full_name = fields.get("Contact Name", "")
+
+    if full_name:
+        parts = full_name.split(None, 1)
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else ""
+    else:
+        first_name = ""
+        last_name = ""
+
+    email = fields.get("Contact Email", "")
+
+    m = re.search(
+        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+        email,
+    )
+
+    email = m.group(0) if m else ""
+
     return {
-        "first_name": name_parts[0] if len(name_parts) > 0 else "",
-        "last_name": name_parts[1] if len(name_parts) > 1 else "",
-        "email": get_field("Contact Email"),
-        "phone": get_field("Contact Phone"),
-        "ref_id": get_field("Ref ID"),
-        "listing_id": get_field("Listing ID"),
-        "contact_zip": get_field("Contact Zip"),
-        "investment_amount": get_field("Able to Invest"),
-        "purchase_timeline": get_field("Purchase Within"),
-        "comments": get_field("Comments"),
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": normalize_phone_us_e164(fields.get("Contact Phone", "")),
+        "ref_id": ref_id,
+        "listing_id": listing_id,
+        "headline": headline,
+        "contact_zip": fields.get("Contact Zip", ""),
+        "investment_amount": fields.get("Able to Invest", ""),
+        "purchase_timeline": fields.get("Purchase Within", ""),
+        "comments": clean_comments_block(fields.get("Comments", "")),
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": "",
     }
+
 
 
 # ==============================
@@ -2041,8 +2135,15 @@ def parse_email():
         # ==============================
         # 🔥 FCBB
         # ==============================
-        elif "fcbb.com" in lowered or "oms.fcbb.com" in lowered or "first choice business brokers" in lowered:
-            flat = extract_fcbb_html(body) if is_html else extract_fcbb_text(body)
+        elif (
+            "oms.fcbb.com" in lowered
+            or "first choice business brokers" in lowered
+        ):
+            flat = (
+                extract_fcbb_html(body)
+                if is_html
+                else extract_fcbb_text(body)
+            )
             flat["source"] = "fcbb"
             return jsonify(to_nested("fcbb", flat))
 
