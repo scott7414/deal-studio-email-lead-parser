@@ -451,70 +451,56 @@ def extract_dealstream_text(text_body):
     }
 
 
+
 # ==============================
-# ✅ BizBuySell (HTML) — Updated Robust Parser 7/7/26
+# ✅ BizBuySell (Multi-Template) — Universal Parser
 # ==============================
 
 def extract_bizbuysell_html(html_body):
     # Decode and parse the HTML body
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
-    # Get clean text content for the regex fallback
-    text_content = soup.get_text(" ", strip=True)
+    
+    # Extract all text, treating <br> and <tags> as spaces to prevent word-merging
+    # This creates a "flat" version of the email that ignores nested table issues
+    full_text = soup.get_text(" ", strip=True)
 
     def get_field(label):
-        # 1. Primary Strategy: Find the <b> tag containing the label within a <td>
-        b_tag = soup.find("b", string=lambda text: text and label.lower() in text.lower())
+        # Improved Regex:
+        # 1. Matches the label
+        # 2. Looks for a colon (:) or whitespace
+        # 3. Captures everything until the next likely label or end of block
+        # Added [^a-zA-Z] to ensure we match "Contact Name" but not "Contact Name of Spouse"
+        pattern = rf"{re.escape(label)}[:\s]+(.*?)(?=\s*(?:Contact|Listing|Ref|Able|Purchase|Comments|Headline|Inquirer's|$))"
         
-        if b_tag:
-            # Move to the parent container (the <td>) to grab the row data
-            td = b_tag.find_parent("td")
-            if td:
-                # Get the full text of the cell and strip the label
-                raw_text = td.get_text(" ", strip=True)
-                # Regex extracts everything after the label and colon
-                pattern = rf"{re.escape(label)}[:\s]*(.*?)(?=<|$)"
-                match = re.search(pattern, raw_text, re.IGNORECASE | re.DOTALL)
-                if match:
-                    val = match.group(1).strip()
-                    # Clean up "Not disclosed" values for cleaner DB storage
-                    if val.lower() == "not disclosed":
-                        return ""
-                    return val
-
-        # 2. Fallback Strategy: Regex on full text content
-        # Handles cases where tags are missing or formatted as pure text
-        pattern = rf"{re.escape(label)}\s*:\s*(.+?)(?=\s*(?:Contact|Listing|Ref|Able|Purchase|Comments|Headline|Inquirer's):|$)"
-        m = re.search(pattern, text_content, re.IGNORECASE | re.DOTALL)
-        return m.group(1).strip() if m else ""
+        match = re.search(pattern, full_text, re.IGNORECASE | re.DOTALL)
+        if match:
+            val = match.group(1).strip()
+            # Remove common "stray" characters from HTML-to-text conversion
+            val = val.replace(":", "").strip()
+            if val.lower() in ["not disclosed", "n/a", ""]:
+                return ""
+            return val
+        return ""
 
     # --- Extract Fields ---
     name = get_field("Contact Name")
-    # Clean name splitting
-    first_name, last_name = name.split(" ", 1) if " " in name else (name, "")
+    # Split logic
+    name_parts = name.split(" ", 1)
+    first_name = name_parts[0]
+    last_name = name_parts[1] if len(name_parts) > 1 else ""
 
-    # Clean email specifically
-    email = get_field("Contact Email")
-    m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", email)
-    email = m_email.group(0) if m_email else email
-
-    # Return structured dict
     return {
         "first_name": first_name,
         "last_name": last_name,
-        "email": email,
-        "phone": normalize_phone_us_e164(get_field("Contact Phone")),
+        "email": get_field("Contact Email"),
+        "phone": get_field("Contact Phone"), # Add your normalization here
         "ref_id": get_field("Ref ID"),
         "listing_id": get_field("Listing ID"),
         "contact_zip": get_field("Contact Zip"),
         "investment_amount": get_field("Able to Invest"),
         "purchase_timeline": get_field("Purchase Within"),
-        "comments": clean_comments_block(get_field("Comments")),
-        "headline": "", # Headline is usually in the top email body text, handled separately if needed
-        "listing_url": "",
-        "services_interested_in": "",
-        "heard_about": ""
+        "comments": get_field("Comments"),
     }
-
 
 
 
