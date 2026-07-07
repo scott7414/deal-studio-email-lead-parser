@@ -459,20 +459,17 @@ def extract_bizbuysell_html(html_body):
     # Decode and parse the HTML body
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
     
-    # Normalize text: replaces multiple spaces/newlines with a single space
-    # This prevents labels and values from being "glued" together during extraction
+    # Normalize text to handle newlines/tabs as spaces
     full_text = re.sub(r'\s+', ' ', soup.get_text(" ", strip=True))
 
     def get_field(label):
-        # Regex Explanation:
-        # 1. re.escape(label): Handles labels with spaces safely
-        # 2. \s*[:]?\s*: Matches an optional colon and any surrounding whitespace
-        # 3. (.*?): Captures the value non-greedily
-        # 4. Lookahead (?=\s*(?:Contact|Listing|Ref|Able|Purchase|Comments|Headline|Inquirer's|$)):
-        #    Stops at the start of the next known field label or end of string
-        pattern = rf"{re.escape(label)}\s*[:]?\s*(.*?)(?=\s*(?:Contact|Listing|Ref|Able|Purchase|Comments|Headline|Inquirer's|$))"
+        # Improved Regex:
+        # 1. Matches the label followed by a colon or space
+        # 2. Uses a non-greedy match (.*?) to capture content
+        # 3. Lookahead ensures we stop before the next field header starts
+        pattern = rf"{re.escape(label)}\s*[:]?\s+(.*?)(?=\s*(?:Contact|Listing|Ref|Able|Purchase|Comments|Headline|Inquirer's|$))"
         
-        match = re.search(pattern, full_text, re.IGNORECASE | re.DOTALL)
+        match = re.search(pattern, full_text, re.IGNORECASE)
         if match:
             val = match.group(1).strip()
             # Clean up common artifacts
@@ -482,11 +479,11 @@ def extract_bizbuysell_html(html_body):
         return ""
 
     # --- Extract Fields ---
-    name = get_field("Contact Name")
-    name_parts = name.split(" ", 1)
+    full_name = get_field("Contact Name")
+    name_parts = full_name.split(" ", 1)
     
     return {
-        "first_name": name_parts[0] if name_parts else "",
+        "first_name": name_parts[0] if len(name_parts) > 0 else "",
         "last_name": name_parts[1] if len(name_parts) > 1 else "",
         "email": get_field("Contact Email"),
         "phone": get_field("Contact Phone"),
