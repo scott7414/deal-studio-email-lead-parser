@@ -452,75 +452,64 @@ def extract_dealstream_text(text_body):
 
 
 # ==============================
-# ✅ BizBuySell (HTML) — original pattern
+# ✅ BizBuySell (HTML) — Updated Robust Parser 7/7/26
 # ==============================
 
 def extract_bizbuysell_html(html_body):
+    # Decode and parse the HTML body
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
+    # Get clean text content for the regex fallback
     text_content = soup.get_text(" ", strip=True)
 
-    # --- Headline (first bold line that isn’t a field label)
-    headline = ""
-    for b in soup.find_all("b"):
-        t = b.get_text(strip=True)
-        if t and not re.search(r"^contact\s+", t, re.I):
-            if len(t) > 8:
-                headline = t
-                break
-
     def get_field(label):
-        # Find both <b> or <span> tags that contain the label
-        stag = soup.find(lambda tag: tag.name in ["b", "span"] and label.lower() in tag.get_text(strip=True).lower())
-        if stag:
-            if label.lower() == "listing id":
-                link = stag.find_next("a")
-                if link:
-                    return link.get_text(strip=True)
-
-            if label.lower() == "ref id":
-                sib = stag.next_sibling
-                if sib:
-                    return str(sib).strip().lstrip(":").strip()
-
-            nxt = stag.find_next("span")
-            if nxt:
-                return nxt.get_text(strip=True)
-
-            td = stag.find_parent("td")
+        # 1. Primary Strategy: Find the <b> tag containing the label within a <td>
+        b_tag = soup.find("b", string=lambda text: text and label.lower() in text.lower())
+        
+        if b_tag:
+            # Move to the parent container (the <td>) to grab the row data
+            td = b_tag.find_parent("td")
             if td:
-                raw = td.get_text(" ", strip=True)
-                return re.sub(rf"{label}\s*:", "", raw, flags=re.I).strip()
+                # Get the full text of the cell and strip the label
+                raw_text = td.get_text(" ", strip=True)
+                # Regex extracts everything after the label and colon
+                pattern = rf"{re.escape(label)}[:\s]*(.*?)(?=<|$)"
+                match = re.search(pattern, raw_text, re.IGNORECASE | re.DOTALL)
+                if match:
+                    val = match.group(1).strip()
+                    # Clean up "Not disclosed" values for cleaner DB storage
+                    if val.lower() == "not disclosed":
+                        return ""
+                    return val
 
-        # Final fallback (regex on full text, stop at next label)
-        m = re.search(rf"{label}\s*:\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)", text_content, re.I)
+        # 2. Fallback Strategy: Regex on full text content
+        # Handles cases where tags are missing or formatted as pure text
+        pattern = rf"{re.escape(label)}\s*:\s*(.+?)(?=\s*(?:Contact|Listing|Ref|Able|Purchase|Comments|Headline|Inquirer's):|$)"
+        m = re.search(pattern, text_content, re.IGNORECASE | re.DOTALL)
         return m.group(1).strip() if m else ""
 
-    # --- Contact fields ---
+    # --- Extract Fields ---
     name = get_field("Contact Name")
+    # Clean name splitting
     first_name, last_name = name.split(" ", 1) if " " in name else (name, "")
 
+    # Clean email specifically
     email = get_field("Contact Email")
     m_email = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", email)
     email = m_email.group(0) if m_email else email
 
-    phone = normalize_phone_us_e164(get_field("Contact Phone"))
-
-    # IDs
-    listing_id = get_field("Listing ID")
-    ref_id = get_field("Ref ID")
-
+    # Return structured dict
     return {
         "first_name": first_name,
         "last_name": last_name,
         "email": email,
-        "phone": phone,
-        "ref_id": ref_id,
-        "listing_id": listing_id,
-        "headline": headline,
+        "phone": normalize_phone_us_e164(get_field("Contact Phone")),
+        "ref_id": get_field("Ref ID"),
+        "listing_id": get_field("Listing ID"),
         "contact_zip": get_field("Contact Zip"),
         "investment_amount": get_field("Able to Invest"),
         "purchase_timeline": get_field("Purchase Within"),
         "comments": clean_comments_block(get_field("Comments")),
+        "headline": "", # Headline is usually in the top email body text, handled separately if needed
         "listing_url": "",
         "services_interested_in": "",
         "heard_about": ""
