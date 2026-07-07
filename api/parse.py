@@ -451,7 +451,6 @@ def extract_dealstream_text(text_body):
     }
 
 
-
 # ==============================
 # ✅ BizBuySell (Multi-Template) — Universal Parser
 # ==============================
@@ -460,23 +459,23 @@ def extract_bizbuysell_html(html_body):
     # Decode and parse the HTML body
     soup = BeautifulSoup(html.unescape(html_body), "html.parser")
     
-    # Extract all text, treating <br> and <tags> as spaces to prevent word-merging
-    # This creates a "flat" version of the email that ignores nested table issues
-    full_text = soup.get_text(" ", strip=True)
+    # Normalize text: replaces multiple spaces/newlines with a single space
+    # This prevents labels and values from being "glued" together during extraction
+    full_text = re.sub(r'\s+', ' ', soup.get_text(" ", strip=True))
 
     def get_field(label):
-        # Improved Regex:
-        # 1. Matches the label
-        # 2. Looks for a colon (:) or whitespace
-        # 3. Captures everything until the next likely label or end of block
-        # Added [^a-zA-Z] to ensure we match "Contact Name" but not "Contact Name of Spouse"
-        pattern = rf"{re.escape(label)}[:\s]+(.*?)(?=\s*(?:Contact|Listing|Ref|Able|Purchase|Comments|Headline|Inquirer's|$))"
+        # Regex Explanation:
+        # 1. re.escape(label): Handles labels with spaces safely
+        # 2. \s*[:]?\s*: Matches an optional colon and any surrounding whitespace
+        # 3. (.*?): Captures the value non-greedily
+        # 4. Lookahead (?=\s*(?:Contact|Listing|Ref|Able|Purchase|Comments|Headline|Inquirer's|$)):
+        #    Stops at the start of the next known field label or end of string
+        pattern = rf"{re.escape(label)}\s*[:]?\s*(.*?)(?=\s*(?:Contact|Listing|Ref|Able|Purchase|Comments|Headline|Inquirer's|$))"
         
         match = re.search(pattern, full_text, re.IGNORECASE | re.DOTALL)
         if match:
             val = match.group(1).strip()
-            # Remove common "stray" characters from HTML-to-text conversion
-            val = val.replace(":", "").strip()
+            # Clean up common artifacts
             if val.lower() in ["not disclosed", "n/a", ""]:
                 return ""
             return val
@@ -484,16 +483,13 @@ def extract_bizbuysell_html(html_body):
 
     # --- Extract Fields ---
     name = get_field("Contact Name")
-    # Split logic
     name_parts = name.split(" ", 1)
-    first_name = name_parts[0]
-    last_name = name_parts[1] if len(name_parts) > 1 else ""
-
+    
     return {
-        "first_name": first_name,
-        "last_name": last_name,
+        "first_name": name_parts[0] if name_parts else "",
+        "last_name": name_parts[1] if len(name_parts) > 1 else "",
         "email": get_field("Contact Email"),
-        "phone": get_field("Contact Phone"), # Add your normalization here
+        "phone": get_field("Contact Phone"),
         "ref_id": get_field("Ref ID"),
         "listing_id": get_field("Listing ID"),
         "contact_zip": get_field("Contact Zip"),
@@ -501,8 +497,6 @@ def extract_bizbuysell_html(html_body):
         "purchase_timeline": get_field("Purchase Within"),
         "comments": get_field("Comments"),
     }
-
-
 
 
 # ==============================
