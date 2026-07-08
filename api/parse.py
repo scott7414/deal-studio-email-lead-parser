@@ -468,20 +468,38 @@ def extract_bizbuysell_html_nested(html_body):
     fields = {}
 
     # -------------------------
-    # Read every table cell
+    # Read labeled fields
     # -------------------------
 
-    for td in soup.find_all("td"):
+    VALID_FIELDS = {
+        "Contact Name",
+        "Contact Email",
+        "Contact Phone",
+        "Contact Zip",
+        "Able to Invest",
+        "Purchase Within",
+        "Comments",
+    }
 
-        b = td.find("b")
-
-        if not b:
-            continue
+    for b in soup.find_all("b"):
 
         label = b.get_text(" ", strip=True).replace(":", "").strip()
 
-        # Contact fields use <span style="display:block">
-        span = td.find("span")
+        if label not in VALID_FIELDS:
+            continue
+
+        td = b.find_parent("td")
+
+        if not td:
+            continue
+
+        # Preferred Outlook layout:
+        # <b>Contact Name</b>:<span style="display:block">John Smith</span>
+
+        span = td.find(
+            "span",
+            style=lambda s: s and "display:block" in s.lower()
+        )
 
         if span:
             value = span.get_text(" ", strip=True).strip()
@@ -490,7 +508,7 @@ def extract_bizbuysell_html_nested(html_body):
                 fields[label] = value
                 continue
 
-        # Otherwise use remaining text in the TD
+        # Fallback for any future template changes
         text = td.get_text(" ", strip=True)
 
         text = re.sub(
