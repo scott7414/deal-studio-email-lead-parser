@@ -2134,10 +2134,16 @@ def parse_email():
 
         # ==============================
         # 🔥 FCBB
+        # Must come AFTER BizBuySell.
+        # Some BizBuySell leads contain an FCBB broker's email
+        # (ex: larry@fcbb.com). Do not let those route here.
         # ==============================
         elif (
-            "oms.fcbb.com" in lowered
-            or "first choice business brokers" in lowered
+            "bizbuysell" not in lowered
+            and (
+                "oms.fcbb.com" in lowered
+                or "first choice business brokers" in lowered
+            )
         ):
             flat = (
                 extract_fcbb_html(body)
@@ -2148,14 +2154,29 @@ def parse_email():
             return jsonify(to_nested("fcbb", flat))
 
         # ==============================
-        # 🔥 BIZBUYSELL (WITH VARIATION)
+        # 🔥 BIZBUYSELL
         # ==============================
         elif "bizbuysell" in lowered:
 
+            # Buyer notification template
             if "new buyer lead notification" in lowered:
                 flat = extract_bizbuysell_newbuyer_html(body)
+
+            # New Outlook / Microsoft nested HTML template
+            elif (
+                is_html
+                and "inquirer" in lowered
+                and "contact name" in lowered
+            ):
+                flat = extract_bizbuysell_html_nested(body)
+
+            # Legacy HTML template
+            elif is_html:
+                flat = extract_bizbuysell_html(body)
+
+            # Plain text template
             else:
-                flat = extract_bizbuysell_html(body) if is_html else extract_bizbuysell_text(body)
+                flat = extract_bizbuysell_text(body)
 
             flat["source"] = "bizbuysell"
             return jsonify(to_nested("bizbuysell", flat))
