@@ -2133,44 +2133,24 @@ def parse_email():
             return jsonify(to_nested("axial", flat))
 
         # ==============================
-        # 🔥 FCBB
-        # Must come AFTER BizBuySell.
-        # Some BizBuySell leads contain an FCBB broker's email
-        # (ex: larry@fcbb.com). Do not let those route here.
-        # ==============================
-        elif (
-            "bizbuysell" not in lowered
-            and (
-                "oms.fcbb.com" in lowered
-                or "first choice business brokers" in lowered
-            )
-        ):
-            flat = (
-                extract_fcbb_html(body)
-                if is_html
-                else extract_fcbb_text(body)
-            )
-            flat["source"] = "fcbb"
-            return jsonify(to_nested("fcbb", flat))
-
-        # ==============================
         # 🔥 BIZBUYSELL
         # ==============================
         elif "bizbuysell" in lowered:
 
-            # Buyer notification template
+            # Buyer Lead Notification
             if "new buyer lead notification" in lowered:
                 flat = extract_bizbuysell_newbuyer_html(body)
 
-            # New Outlook / Microsoft nested HTML template
+            # New Outlook / Microsoft HTML template
             elif (
                 is_html
-                and "inquirer" in lowered
-                and "contact name" in lowered
+                and "inquir" in lowered
+                and "contact email" in lowered
+                and "contact phone" in lowered
             ):
                 flat = extract_bizbuysell_html_nested(body)
 
-            # Legacy HTML template
+            # Legacy HTML templates
             elif is_html:
                 flat = extract_bizbuysell_html(body)
 
@@ -2182,9 +2162,27 @@ def parse_email():
             return jsonify(to_nested("bizbuysell", flat))
 
         # ==============================
+        # 🔥 FCBB
+        # ==============================
+        elif (
+            "oms.fcbb.com" in lowered
+            or "first choice business brokers" in lowered
+        ):
+            flat = (
+                extract_fcbb_html(body)
+                if is_html
+                else extract_fcbb_text(body)
+            )
+            flat["source"] = "fcbb"
+            return jsonify(to_nested("fcbb", flat))
+
+        # ==============================
         # 🔥 BusinessesForSale
         # ==============================
-        elif "businessesforsale.com" in lowered or "businesses for sale" in lowered:
+        elif (
+            "businessesforsale.com" in lowered
+            or "businesses for sale" in lowered
+        ):
             flat = extract_businessesforsale_text(
                 body if not is_html else BeautifulSoup(body, "html.parser").get_text("\n")
             )
@@ -2194,16 +2192,30 @@ def parse_email():
         # ==============================
         # 🔥 DealStream
         # ==============================
-        elif "dealstream" in lowered or "leads.dealstream.com" in lowered:
-            flat = extract_dealstream_html(body) if is_html else extract_dealstream_text(body)
+        elif (
+            "dealstream" in lowered
+            or "leads.dealstream.com" in lowered
+        ):
+            flat = (
+                extract_dealstream_html(body)
+                if is_html
+                else extract_dealstream_text(body)
+            )
             flat["source"] = "dealstream"
             return jsonify(to_nested("dealstream", flat))
 
         # ==============================
         # 🔥 Murphy Business
         # ==============================
-        elif "murphybusiness.com" in lowered or "murphy business" in lowered:
-            flat = extract_murphy_html(body) if is_html else extract_murphy_text(body)
+        elif (
+            "murphybusiness.com" in lowered
+            or "murphy business" in lowered
+        ):
+            flat = (
+                extract_murphy_html(body)
+                if is_html
+                else extract_murphy_text(body)
+            )
             flat["source"] = "murphybusiness"
             return jsonify(to_nested("murphybusiness", flat))
 
@@ -2211,22 +2223,36 @@ def parse_email():
         # 🔥 BusinessBroker
         # ==============================
         elif "businessbroker.net" in lowered:
-            flat = extract_businessbroker_html(body) if is_html else extract_businessbroker_text(body)
+            flat = (
+                extract_businessbroker_html(body)
+                if is_html
+                else extract_businessbroker_text(body)
+            )
             flat["source"] = "businessbroker"
             return jsonify(to_nested("businessbroker", flat))
 
         # ==============================
         # 🔥 RestaurantsForSale
         # ==============================
-        elif "restaurants-for-sale.com" in lowered or "restaurants for sale online" in lowered:
-            flat = extract_restaurantsforsale_html(body) if is_html else extract_restaurantsforsale_text(body)
+        elif (
+            "restaurants-for-sale.com" in lowered
+            or "restaurants for sale online" in lowered
+        ):
+            flat = (
+                extract_restaurantsforsale_html(body)
+                if is_html
+                else extract_restaurantsforsale_text(body)
+            )
             flat["source"] = "restaurantsforsale"
             return jsonify(to_nested("restaurantsforsale", flat))
 
         # ==============================
         # 🔥 FranchiseResales
         # ==============================
-        elif "franchiseresales.com" in lowered or "franchise resales" in lowered:
+        elif (
+            "franchiseresales.com" in lowered
+            or "franchise resales" in lowered
+        ):
             flat = extract_franchiseresales_text(
                 body if not is_html else BeautifulSoup(body, "html.parser").get_text("\n")
             )
@@ -2236,28 +2262,45 @@ def parse_email():
         # ==============================
         # 🔥 LoopNet
         # ==============================
-        elif "loopnet.com" in lowered or "loopnet" in lowered:
-            flat = extract_loopnet_html(body) if is_html else extract_loopnet_text(body)
+        elif (
+            "loopnet.com" in lowered
+            or "loopnet" in lowered
+        ):
+            flat = (
+                extract_loopnet_html(body)
+                if is_html
+                else extract_loopnet_text(body)
+            )
             flat["source"] = "loopnet"
             return jsonify(to_nested("loopnet", flat))
 
         # ==============================
         # 🔥 Crexi
         # ==============================
-        elif "crexi.com" in lowered or "crexi" in lowered:
-            flat = extract_crexi_html(body) if is_html else extract_crexi_text(body)
+        elif (
+            "crexi.com" in lowered
+            or "crexi" in lowered
+        ):
+            flat = (
+                extract_crexi_html(body)
+                if is_html
+                else extract_crexi_text(body)
+            )
             flat["source"] = "crexi"
             return jsonify(to_nested("crexi", flat))
 
         # ==============================
-        # 🔥 TWorld (ADD HERE ✅)
+        # 🔥 TWorld
         # ==============================
-        elif "listing inquiry" in lowered and "listing number" in lowered:
+        elif (
+            "listing inquiry" in lowered
+            and "listing number" in lowered
+        ):
             flat = extract_transworld_html(body)
             return jsonify(to_nested("tworld_website", flat))
 
         # ==============================
-        # 🔥 BizListPro (LAST)
+        # 🔥 BizListPro
         # ==============================
         elif "bizlistpro.com" in lowered:
             flat = extract_bizlistpro_html(body)
@@ -2271,7 +2314,13 @@ def parse_email():
             return jsonify(to_nested("unknown", {"source": "unknown"}))
 
     except Exception as outer:
-        return jsonify(to_nested("unknown", {"source": "unknown"}, f"router_error: {outer}"))
+        return jsonify(
+            to_nested(
+                "unknown",
+                {"source": "unknown"},
+                f"router_error: {outer}"
+            )
+        )
 
 
 @app.route("/health", methods=["GET"])
