@@ -450,7 +450,6 @@ def extract_dealstream_text(text_body):
         "listing_url": ""
     }
 
-
 # ==============================
 # ✅ BizBuySell (HTML) — Nested DOM Template
 # Handles the newer BizBuySell HTML emails that store
@@ -607,7 +606,185 @@ def extract_bizbuysell_html_nested(html_body):
     }
 
 
+# ==============================
+# ✅ BizBuySell (HTML) — Universal Parser
+# Supports all known BizBuySell HTML templates
+# ==============================
 
+def extract_bizbuysell_html(html_body):
+    soup = BeautifulSoup(html.unescape(html_body), "html.parser")
+    text_content = soup.get_text("\n", strip=True)
+
+    # Remove footer
+    text_content = re.split(
+        r"Unsubscribe|Email Preferences|Privacy Notice|This system email was sent to you by BizBuySell",
+        text_content,
+        flags=re.I,
+    )[0]
+
+    # -------------------------
+    # Headline
+    # -------------------------
+
+    headline = ""
+
+    m = re.search(
+        r"You.?ve received a new lead regarding your listing:\s*(.*?)\s*(?:Listing ID|Ref ID|Inquirer)",
+        text_content,
+        re.I | re.S,
+    )
+
+    if m:
+        headline = re.sub(r"\s+", " ", m.group(1)).strip()
+
+    if not headline:
+        for b in soup.find_all(["b", "strong"]):
+            txt = b.get_text(" ", strip=True)
+
+            if not txt:
+                continue
+
+            if re.search(
+                r"contact|listing id|ref id|purchase|comments|inquirer",
+                txt,
+                re.I,
+            ):
+                continue
+
+            if len(txt) > 10:
+                headline = txt
+                break
+
+    # -------------------------
+    # Universal field reader
+    # -------------------------
+
+    def get_field(label):
+
+        txt = text_content.replace("\r", "")
+
+        # Case 1
+        # Contact Name: John Smith
+        m = re.search(
+            rf"{re.escape(label)}\s*:\s*(.+)",
+            txt,
+            re.I,
+        )
+
+        if m:
+            value = m.group(1)
+
+            value = re.split(
+                r"\n(?:Contact Name|Contact Email|Contact Phone|Contact Zip|Able to Invest|Purchase Within|Comments|Headline|Listing ID|Ref ID)",
+                value,
+                flags=re.I,
+            )[0]
+
+            value = re.sub(r"\s+", " ", value).strip()
+
+            if value:
+                return value
+
+        # Case 2
+        # Contact Name
+        # :
+        # John Smith
+
+        lines = [l.strip() for l in txt.split("\n") if l.strip()]
+
+        for i, line in enumerate(lines):
+
+            if line.lower() != label.lower():
+                continue
+
+            j = i + 1
+
+            while j < len(lines):
+
+                nxt = lines[j].strip()
+
+                if nxt == ":":
+                    j += 1
+                    continue
+
+                if re.match(
+                    r"^(Contact Name|Contact Email|Contact Phone|Contact Zip|Able to Invest|Purchase Within|Comments|Headline|Listing ID|Ref ID)$",
+                    nxt,
+                    re.I,
+                ):
+                    break
+
+                return nxt
+
+        return ""
+
+    # -------------------------
+    # Contact
+    # -------------------------
+
+    name = get_field("Contact Name")
+
+    if name:
+        parts = name.split(None, 1)
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else ""
+    else:
+        first_name = ""
+        last_name = ""
+
+    email = get_field("Contact Email")
+
+    m = re.search(
+        r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}",
+        email,
+    )
+
+    email = m.group(0) if m else ""
+
+    phone = normalize_phone_us_e164(
+        get_field("Contact Phone")
+    )
+
+    # -------------------------
+    # IDs
+    # -------------------------
+
+    m = re.search(
+        r"Listing ID\s*:?\s*(\d+)",
+        text_content,
+        re.I,
+    )
+
+    listing_id = m.group(1) if m else ""
+
+    m = re.search(
+        r"Ref ID\s*:?\s*([A-Za-z0-9\-]+)",
+        text_content,
+        re.I,
+    )
+
+    ref_id = m.group(1) if m else ""
+
+    # -------------------------
+    # Return
+    # -------------------------
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": ref_id,
+        "listing_id": listing_id,
+        "headline": headline,
+        "contact_zip": get_field("Contact Zip"),
+        "investment_amount": get_field("Able to Invest"),
+        "purchase_timeline": get_field("Purchase Within"),
+        "comments": clean_comments_block(get_field("Comments")),
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": "",
+    }
 # ==============================
 # ✅ BizBuySell (TEXT) — original pattern
 # ==============================
@@ -2063,9 +2240,6 @@ def extract_transworld_html(html_body):
         "services_interested_in": "",
         "heard_about": ""
     }
-
-
-
 # ==============================
 # ✅ Mapper to unified nested schema
 # ==============================
@@ -2150,25 +2324,57 @@ def parse_email():
             flat["source"] = "axial"
             return jsonify(to_nested("axial", flat))
 
+       # ==============================
+        # 🔥 FCBB
+        # Must come AFTER BizBuySell.
+        # Some BizBuySell leads contain an FCBB broker's email
+        # (ex: larry@fcbb.com). Do not let those route here.
+        # ==============================
+        elif (
+            "bizbuysell" not in lowered
+            and (
+                "oms.fcbb.com" in lowered
+                or "first choice business brokers" in lowered
+            )
+        ):
+            flat = (
+                extract_fcbb_html(body)
+                if is_html
+                else extract_fcbb_text(body)
+            )
+            flat["source"] = "fcbb"
+            return jsonify(to_nested("fcbb", flat))
+
+        
+
+        # ==============================
+        # 🔥 BusinessesForSale
+        # ==============================
+        elif "businessesforsale.com" in lowered or "businesses for sale" in lowered:
+            flat = extract_businessesforsale_text(
+                body if not is_html else BeautifulSoup(body, "html.parser").get_text("\n")
+            )
+            flat["source"] = "businessesforsale"
+            return jsonify(to_nested("businessesforsale", flat))
+
         # ==============================
         # 🔥 BIZBUYSELL
         # ==============================
         elif "bizbuysell" in lowered:
 
-            # Buyer Lead Notification
+            # Buyer notification template
             if "new buyer lead notification" in lowered:
                 flat = extract_bizbuysell_newbuyer_html(body)
 
-            # New Outlook / Microsoft HTML template
+            # New Outlook / Microsoft nested HTML template
             elif (
                 is_html
-                and "inquir" in lowered
-                and "contact email" in lowered
-                and "contact phone" in lowered
+                and "inquirer" in lowered
+                and "contact name" in lowered
             ):
                 flat = extract_bizbuysell_html_nested(body)
 
-            # Legacy HTML templates
+            # Legacy HTML template
             elif is_html:
                 flat = extract_bizbuysell_html(body)
 
@@ -2180,60 +2386,18 @@ def parse_email():
             return jsonify(to_nested("bizbuysell", flat))
 
         # ==============================
-        # 🔥 FCBB
-        # ==============================
-        elif (
-            "oms.fcbb.com" in lowered
-            or "first choice business brokers" in lowered
-        ):
-            flat = (
-                extract_fcbb_html(body)
-                if is_html
-                else extract_fcbb_text(body)
-            )
-            flat["source"] = "fcbb"
-            return jsonify(to_nested("fcbb", flat))
-
-        # ==============================
-        # 🔥 BusinessesForSale
-        # ==============================
-        elif (
-            "businessesforsale.com" in lowered
-            or "businesses for sale" in lowered
-        ):
-            flat = extract_businessesforsale_text(
-                body if not is_html else BeautifulSoup(body, "html.parser").get_text("\n")
-            )
-            flat["source"] = "businessesforsale"
-            return jsonify(to_nested("businessesforsale", flat))
-
-        # ==============================
         # 🔥 DealStream
         # ==============================
-        elif (
-            "dealstream" in lowered
-            or "leads.dealstream.com" in lowered
-        ):
-            flat = (
-                extract_dealstream_html(body)
-                if is_html
-                else extract_dealstream_text(body)
-            )
+        elif "dealstream" in lowered or "leads.dealstream.com" in lowered:
+            flat = extract_dealstream_html(body) if is_html else extract_dealstream_text(body)
             flat["source"] = "dealstream"
             return jsonify(to_nested("dealstream", flat))
 
         # ==============================
         # 🔥 Murphy Business
         # ==============================
-        elif (
-            "murphybusiness.com" in lowered
-            or "murphy business" in lowered
-        ):
-            flat = (
-                extract_murphy_html(body)
-                if is_html
-                else extract_murphy_text(body)
-            )
+        elif "murphybusiness.com" in lowered or "murphy business" in lowered:
+            flat = extract_murphy_html(body) if is_html else extract_murphy_text(body)
             flat["source"] = "murphybusiness"
             return jsonify(to_nested("murphybusiness", flat))
 
@@ -2241,36 +2405,22 @@ def parse_email():
         # 🔥 BusinessBroker
         # ==============================
         elif "businessbroker.net" in lowered:
-            flat = (
-                extract_businessbroker_html(body)
-                if is_html
-                else extract_businessbroker_text(body)
-            )
+            flat = extract_businessbroker_html(body) if is_html else extract_businessbroker_text(body)
             flat["source"] = "businessbroker"
             return jsonify(to_nested("businessbroker", flat))
 
         # ==============================
         # 🔥 RestaurantsForSale
         # ==============================
-        elif (
-            "restaurants-for-sale.com" in lowered
-            or "restaurants for sale online" in lowered
-        ):
-            flat = (
-                extract_restaurantsforsale_html(body)
-                if is_html
-                else extract_restaurantsforsale_text(body)
-            )
+        elif "restaurants-for-sale.com" in lowered or "restaurants for sale online" in lowered:
+            flat = extract_restaurantsforsale_html(body) if is_html else extract_restaurantsforsale_text(body)
             flat["source"] = "restaurantsforsale"
             return jsonify(to_nested("restaurantsforsale", flat))
 
         # ==============================
         # 🔥 FranchiseResales
         # ==============================
-        elif (
-            "franchiseresales.com" in lowered
-            or "franchise resales" in lowered
-        ):
+        elif "franchiseresales.com" in lowered or "franchise resales" in lowered:
             flat = extract_franchiseresales_text(
                 body if not is_html else BeautifulSoup(body, "html.parser").get_text("\n")
             )
@@ -2280,45 +2430,28 @@ def parse_email():
         # ==============================
         # 🔥 LoopNet
         # ==============================
-        elif (
-            "loopnet.com" in lowered
-            or "loopnet" in lowered
-        ):
-            flat = (
-                extract_loopnet_html(body)
-                if is_html
-                else extract_loopnet_text(body)
-            )
+        elif "loopnet.com" in lowered or "loopnet" in lowered:
+            flat = extract_loopnet_html(body) if is_html else extract_loopnet_text(body)
             flat["source"] = "loopnet"
             return jsonify(to_nested("loopnet", flat))
 
         # ==============================
         # 🔥 Crexi
         # ==============================
-        elif (
-            "crexi.com" in lowered
-            or "crexi" in lowered
-        ):
-            flat = (
-                extract_crexi_html(body)
-                if is_html
-                else extract_crexi_text(body)
-            )
+        elif "crexi.com" in lowered or "crexi" in lowered:
+            flat = extract_crexi_html(body) if is_html else extract_crexi_text(body)
             flat["source"] = "crexi"
             return jsonify(to_nested("crexi", flat))
 
         # ==============================
-        # 🔥 TWorld
+        # 🔥 TWorld (ADD HERE ✅)
         # ==============================
-        elif (
-            "listing inquiry" in lowered
-            and "listing number" in lowered
-        ):
+        elif "listing inquiry" in lowered and "listing number" in lowered:
             flat = extract_transworld_html(body)
             return jsonify(to_nested("tworld_website", flat))
 
         # ==============================
-        # 🔥 BizListPro
+        # 🔥 BizListPro (LAST)
         # ==============================
         elif "bizlistpro.com" in lowered:
             flat = extract_bizlistpro_html(body)
@@ -2332,13 +2465,7 @@ def parse_email():
             return jsonify(to_nested("unknown", {"source": "unknown"}))
 
     except Exception as outer:
-        return jsonify(
-            to_nested(
-                "unknown",
-                {"source": "unknown"},
-                f"router_error: {outer}"
-            )
-        )
+        return jsonify(to_nested("unknown", {"source": "unknown"}, f"router_error: {outer}"))
 
 
 @app.route("/health", methods=["GET"])
