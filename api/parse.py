@@ -351,12 +351,30 @@ def extract_dealstream_html(html_body):
     if m:
         email = m.group(1).strip()
 
-    # ------------------------------------------------
-    # PHONE
-    # ------------------------------------------------
-    phone = ""
+   # ------------------------------------------------
+# PHONE
+# ------------------------------------------------
+phone = ""
 
-    m = re.search(r"tel:\+?([0-9\-\+\s\(\)]+)", html_body, re.I)
+for a in soup.find_all("a", href=True):
+
+    href = unquote(a["href"])
+
+    if href.lower().startswith("tel:"):
+
+        phone = normalize_phone_us_e164(href[4:])
+
+        if phone:
+            break
+
+if not phone:
+
+    m = re.search(
+        r"(?:Phone|Mobile Phone)\s*:?\s*([\+\d\(\)\-\.\s]{10,})",
+        text,
+        re.I
+    )
+
     if m:
         phone = normalize_phone_us_e164(m.group(1))
 
