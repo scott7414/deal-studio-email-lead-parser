@@ -313,26 +313,213 @@ def extract_dealstream_html(html_body):
 
     # ------------------------------------------------
     # NAME
-    # Skip empty <strong> tags and greetings
     # ------------------------------------------------
     first_name = ""
     last_name = ""
+    name = ""
 
-    for tag in soup.find_all("strong"):
+    # ------------------------------------------------
+    # New DealStream card layout (Emails 3 & 4) - runs FIRST.
+    # In this layout the first <strong> in the document is the
+    # "Listing:" label, so the generic <strong> scan must not
+    # run before this block.
+    # ------------------------------------------------
+    contact_card = None
 
-        name_candidate = tag.get_text(strip=True)
+    # Find the paragraph introducing the contact
+    intro = None
 
-        if not name_candidate:
-            continue
+    for p in soup.find_all("p"):
 
-        if name_candidate.lower().startswith("hello"):
-            continue
+        txt = " ".join(p.stripped_strings)
 
-        if len(name_candidate) > 1:
-            name = name_candidate
+        if "Here's how to reach them" in txt:
+            intro = p
             break
-    else:
-        name = ""
+
+    # Find the first table after that paragraph
+    if intro:
+
+        node = intro
+
+        while node:
+
+            node = node.find_next()
+
+            if node and node.name == "table":
+                contact_card = node
+                break
+
+    if contact_card:
+
+        for p in contact_card.find_all("p"):
+
+            candidate = re.sub(r"\s+", " ", p.get_text(" ", strip=True)).strip()
+
+            if not candidate:
+                continue
+
+            lower = candidate.lower()
+
+            if (
+                lower.startswith("phone")
+                or lower.startswith("email")
+                or lower.startswith("location")
+                or lower.startswith("verified")
+                or lower.startswith("disclaimer")
+                or lower.startswith("view member")
+            ):
+                continue
+
+            if "@" in candidate:
+                continue
+
+            if len(candidate) > 50:
+                continue
+
+            parts = candidate.split()
+
+            # Skip title/company line
+            if len(parts) > 4:
+                continue
+
+            # Skip labels
+            if candidate.endswith(":"):
+                continue
+
+            name = candidate
+            break
+
+    # ------------------------------------------------
+    # Original method (<strong>) - Emails 1 & 2
+    # ------------------------------------------------
+    if not name:
+
+        for tag in soup.find_all("strong"):
+
+            candidate = tag.get_text(strip=True)
+
+            if not candidate:
+                continue
+
+            lower = candidate.lower()
+
+            if lower.startswith("hello"):
+                continue
+
+            # Skip field labels like "Listing:", "Message ID:"
+            if candidate.endswith(":"):
+                continue
+
+            # Skip boilerplate strongs from the new layout / footer
+            if lower == "dealstream" or lower.startswith("please respond"):
+                continue
+
+            if len(candidate) > 1:
+                name = candidate
+                break
+
+    # ------------------------------------------------
+    # Fallback to <b>
+    # ------------------------------------------------
+    if not name:
+
+        for tag in soup.find_all("b"):
+
+            candidate = tag.get_text(" ", strip=True)
+
+            if not candidate:
+                continue
+
+            lower = candidate.lower()
+
+            if lower.startswith("hello"):
+                continue
+
+            if lower in (
+                "listing",
+                "listing of interest",
+                "reference number",
+                "location",
+                "phone",
+                "email",
+                "verified by photo id",
+            ):
+                continue
+
+            # Skip field labels like "From:", "Sent:", "Listing:"
+            if candidate.endswith(":"):
+                continue
+
+            if "@" in candidate:
+                continue
+
+            if len(candidate) > 60:
+                continue
+
+            name = candidate
+            break
+
+    # ------------------------------------------------
+    # Final fallback - scan visible text before Listing of Interest
+    # ------------------------------------------------
+    if not name:
+
+        for candidate in soup.stripped_strings:
+
+            candidate = re.sub(r"\s+", " ", candidate).strip()
+
+            if candidate == "Listing of Interest":
+                break
+
+            lower = candidate.lower()
+
+            if (
+                lower.startswith("hello")
+                or lower.startswith("listing")
+                or lower.startswith("reference")
+                or lower.startswith("location")
+                or lower.startswith("phone")
+                or lower.startswith("mobile")
+                or lower.startswith("email")
+                or lower.startswith("verified")
+                or lower.startswith("disclaimer")
+                or lower.startswith("view member")
+                or lower.startswith("thank you")
+                or lower.startswith("from:")
+                or lower.startswith("sent:")
+                or lower.startswith("subject:")
+                or lower.startswith("to:")
+            ):
+                continue
+
+            if "@" in candidate:
+                continue
+
+            if len(candidate) > 40:
+                continue
+
+            parts = candidate.split()
+
+            # Only accept names with 2-3 words
+            if len(parts) < 2 or len(parts) > 3:
+                continue
+
+            if any(
+                p.lower() in (
+                    "listing",
+                    "reference",
+                    "phone",
+                    "email",
+                    "location",
+                    "message",
+                )
+                for p in parts
+            ):
+                continue
+
+            name = candidate
+            break
 
     if name:
 
@@ -348,35 +535,35 @@ def extract_dealstream_html(html_body):
     email = ""
 
     m = re.search(r"mailto:([^\"'>]+)", html_body, re.I)
+
     if m:
         email = m.group(1).strip()
 
-   # ------------------------------------------------
-# PHONE
-# ------------------------------------------------
-phone = ""
+    # ------------------------------------------------
+    # PHONE
+    # ------------------------------------------------
+    phone = ""
 
-for a in soup.find_all("a", href=True):
+    # Original method - only trust the match if it has enough digits
+    # (URL-encoded hrefs like tel:+1%20651-366-7285 truncate at the %)
+    m = re.search(r"tel:\+?([0-9\-\+\s\(\)]+)", html_body, re.I)
 
-    href = unquote(a["href"])
-
-    if href.lower().startswith("tel:"):
-
-        phone = normalize_phone_us_e164(href[4:])
-
-        if phone:
-            break
-
-if not phone:
-
-    m = re.search(
-        r"(?:Phone|Mobile Phone)\s*:?\s*([\+\d\(\)\-\.\s]{10,})",
-        text,
-        re.I
-    )
-
-    if m:
+    if m and len(re.sub(r"\D", "", m.group(1))) >= 7:
         phone = normalize_phone_us_e164(m.group(1))
+
+    # Outlook forwarded / URL-encoded emails
+    if not phone:
+
+        for a in soup.find_all("a", href=True):
+
+            href = unquote(a["href"])
+
+            if href.lower().startswith("tel:"):
+
+                phone = normalize_phone_us_e164(href[4:])
+
+                if phone:
+                    break
 
     # ------------------------------------------------
     # LOCATION
