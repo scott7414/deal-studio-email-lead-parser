@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 import html
 import re
 from urllib.parse import urlparse
+from urllib.parse import unquote
 
 app = Flask(__name__)
 
