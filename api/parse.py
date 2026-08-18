@@ -298,7 +298,118 @@ def extract_axial_html(html_body):
     }
 
 # ==============================
-# ✅ DealStream (HTML)
+# ✅ BusinessMart (TEXT)
+# ==============================
+def extract_businessmart_text(text_body):
+    text = (text_body or "").replace("\r", "")
+
+    # -----------------------------
+    # CONTACT NAME
+    # -----------------------------
+    name = ""
+
+    m = re.search(
+        r"Contact\s+Name\s*:\s*([^\n\r]+)",
+        text,
+        re.I
+    )
+
+    if m:
+        name = m.group(1).strip()
+
+    if name:
+        parts = name.split(None, 1)
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else ""
+    else:
+        first_name = ""
+        last_name = ""
+
+    # -----------------------------
+    # EMAIL
+    # -----------------------------
+    email = ""
+
+    m = re.search(
+        r"Email\s*:\s*([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})",
+        text,
+        re.I
+    )
+
+    if m:
+        email = m.group(1).strip()
+
+    # -----------------------------
+    # PHONE
+    # -----------------------------
+    phone = ""
+
+    m = re.search(
+        r"Phone\s*:\s*([^\n\r]+)",
+        text,
+        re.I
+    )
+
+    if m:
+        phone = normalize_phone_us_e164(m.group(1).strip())
+
+    # -----------------------------
+    # BUSINESS MART LISTING ID
+    # Example: Business Mart Listing# 323298
+    # -----------------------------
+    listing_id = ""
+
+    m = re.search(
+        r"Business\s+Mart\s+Listing\s*#\s*([A-Za-z0-9\-]+)",
+        text,
+        re.I
+    )
+
+    if m:
+        listing_id = m.group(1).strip()
+
+    # -----------------------------
+    # SELLER REF → REF ID
+    # Example: Seller Ref# plumbla
+    # -----------------------------
+    ref_id = ""
+
+    m = re.search(
+        r"Seller\s+Ref\s*#\s*([A-Za-z0-9._\-]+)",
+        text,
+        re.I
+    )
+
+    if m:
+        ref_id = m.group(1).strip()
+
+    # -----------------------------
+    # RETURN
+    # -----------------------------
+    return {
+        "source": "businessmart",
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "phone": phone,
+        "ref_id": ref_id,
+        "listing_id": listing_id,
+        "headline": "",
+        "address": "",
+        "city": "",
+        "state": "",
+        "country": "",
+        "contact_zip": "",
+        "investment_amount": "",
+        "purchase_timeline": "",
+        "comments": "",
+        "listing_url": "",
+        "services_interested_in": "",
+        "heard_about": ""
+    }
+
+# ==============================
+# —✅ DealStream (HTML)
 # ==============================
 def extract_dealstream_html(html_body):
 
@@ -2655,6 +2766,23 @@ def parse_email():
         elif "listing inquiry" in lowered and "listing number" in lowered:
             flat = extract_transworld_html(body)
             return jsonify(to_nested("tworld_website", flat))
+
+        # ==============================
+        # 🔥 BusinessMart
+        # ==============================
+        elif (
+            "businessmart.com" in lowered
+            or (
+                "business mart listing#" in lowered
+                and "seller ref#" in lowered
+            )
+        ):
+            flat = extract_businessmart_text(
+                body if not is_html
+                else BeautifulSoup(body, "html.parser").get_text("\n")
+            )
+            flat["source"] = "businessmart"
+            return jsonify(to_nested("businessmart", flat))
 
         # ==============================
         # 🔥 BizListPro (LAST)
